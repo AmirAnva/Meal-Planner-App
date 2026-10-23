@@ -1,0 +1,13 @@
+# Go build output
+/backend/server
+/backend/*.out
+
+# Local environment files
+.env
+.env.*
+!.env.example
+
+# Editor and OS files
+.DS_Store
+.idea/
+.vscode/
