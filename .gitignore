@@ -1,8 +1,10 @@
 # Go build output
+/server
 /backend/server
 /backend/*.out
 
-# Local environment files
+# Runtime data and local environment files
+/data/recipes.json
 .env
 .env.*
 !.env.example
