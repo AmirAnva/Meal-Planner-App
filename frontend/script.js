@@ -3,16 +3,18 @@ const API_BASE = 'http://localhost:8080';
 
 // ── State ───────────────────────────────────────────────────────
 let recipes     = [];
-let activeTag   = 'all';
 let searchQuery = '';
 let toastTimer;
 
-// ── Emoji helper ────────────────────────────────────────────────
-const TAG_EMOJIS = { breakfast: '🥣', lunch: '🥗', dinner: '🍽️', quick: '⚡', snack: '🍿' };
-
-function emojiForTags(tags) {
-  if (!tags || !tags.length) return '🍴';
-  return TAG_EMOJIS[tags[0]] || '🍴';
+// ── Helpers ─────────────────────────────────────────────────────
+function escapeHTML(str) {
+  if (!str) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
 }
 
 // ── API helpers ─────────────────────────────────────────────────
@@ -44,14 +46,11 @@ function render() {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
 
-  let filtered = activeTag === 'all'
-    ? recipes
-    : recipes.filter(r => (r.tags || []).includes(activeTag));
+  let filtered = recipes;
 
   if (searchQuery) {
     filtered = filtered.filter(r =>
-      r.name.toLowerCase().includes(searchQuery) ||
-      (r.tags || []).some(t => t.includes(searchQuery))
+      r.name.toLowerCase().includes(searchQuery)
     );
   }
 
@@ -66,28 +65,23 @@ function render() {
 }
 
 function cardHTML(r) {
-  const badgeClass = r.source === 'personal' ? 'badge-personal' : 'badge-external';
-  const badgeLabel = r.source === 'personal' ? 'Personal' : 'External';
-  const emoji      = r.emoji || emojiForTags(r.tags);
+  const ingCount  = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
+  const stepCount = (r.instructions && r.instructions.length) ? r.instructions.length : 0;
 
-  const imageBlock = r.image
-    ? `<img class="card-image" src="${r.image}" alt="${r.name}"
-         onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-       <div class="card-image-placeholder" style="display:none">${emoji}</div>`
-    : `<div class="card-image-placeholder">${emoji}</div>`;
-
-  const tagList = r.tags && r.tags.length
-    ? r.tags.map(t => `<span class="card-tag">${t}</span>`).join('')
-    : `<span class="card-tag" style="color:#bbb">no tags</span>`;
+  let metaText = 'Click to view details';
+  if (ingCount > 0 || stepCount > 0) {
+    const parts = [];
+    if (ingCount > 0) parts.push(`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`);
+    if (stepCount > 0) parts.push(`${stepCount} step${stepCount === 1 ? '' : 's'}`);
+    metaText = parts.join(' • ');
+  }
 
   return `
     <div class="recipe-card" id="card-${r.id}" onclick="openDetailModal(${r.id})" title="Click to view recipe details">
-      <button class="card-remove" onclick="event.stopPropagation(); removeRecipe(${r.id})" title="Remove">&#x2715;</button>
-      <span class="card-badge ${badgeClass}">${badgeLabel}</span>
-      ${imageBlock}
+      <button class="card-remove" onclick="event.stopPropagation(); removeRecipe(${r.id})" title="Remove recipe">&#x2715;</button>
       <div class="card-body">
-        <div class="card-name">${r.name}</div>
-        <div class="card-tags">${tagList}</div>
+        <div class="card-name">${escapeHTML(r.name)}</div>
+        <div class="card-meta">${metaText}</div>
       </div>
     </div>`;
 }
@@ -101,12 +95,8 @@ function openModal() {
 function closeModal() {
   document.getElementById('modal-backdrop').style.display = 'none';
   document.getElementById('f-name').value         = '';
-  document.getElementById('f-image').value        = '';
   document.getElementById('f-ingredients').value  = '';
   document.getElementById('f-instructions').value = '';
-  document.querySelector('input[name="source"][value="personal"]').checked = true;
-  document.querySelectorAll('.modal-body input[type="checkbox"]')
-    .forEach(cb => (cb.checked = false));
 }
 
 function backdropClick(e) {
@@ -117,24 +107,15 @@ async function submitRecipe(e) {
   e.preventDefault();
 
   const name         = document.getElementById('f-name').value.trim();
-  const image        = document.getElementById('f-image').value.trim();
-  const source       = document.querySelector('input[name="source"]:checked').value;
-  const tags         = [...document.querySelectorAll('.modal-body input[type="checkbox"]:checked')]
-                         .map(cb => cb.value);
-  const emoji        = emojiForTags(tags);
   const ingredients  = document.getElementById('f-ingredients').value
                          .split('\n').map(s => s.trim()).filter(Boolean);
   const instructions = document.getElementById('f-instructions').value
                          .split('\n').map(s => s.trim()).filter(Boolean);
 
-  // Full Recipe data structure matching the Go backend model:
-  // type Recipe struct { ID, Name, Image, Emoji, Source, Tags, Ingredients, Instructions }
   const payload = {
     name,
-    image,
-    emoji,
-    source,
-    tags,
+    source: 'personal',
+    tags: [],
     ingredients,
     instructions,
   };
@@ -159,41 +140,17 @@ function openDetailModal(id) {
   const r = recipes.find(x => x.id === Number(id));
   if (!r) return;
 
-  const emoji = r.emoji || emojiForTags(r.tags);
-  const badgeClass = r.source === 'personal' ? 'badge-personal' : 'badge-external';
-  const badgeLabel = r.source === 'personal' ? 'Personal' : 'External';
-
   document.getElementById('d-name').textContent = r.name;
 
-  const imageHero = r.image
-    ? `<div class="detail-hero-wrap">
-         <img class="detail-hero-image" src="${r.image}" alt="${r.name}"
-              onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-         <div class="detail-hero-placeholder" style="display:none">${emoji}</div>
-       </div>`
-    : `<div class="detail-hero-wrap">
-         <div class="detail-hero-placeholder">${emoji}</div>
-       </div>`;
-
-  const tagsList = r.tags && r.tags.length
-    ? r.tags.map(t => `<span class="card-tag">${t}</span>`).join('')
-    : `<span class="card-tag" style="color:#aaa">No tags</span>`;
-
   const ingredientsList = r.ingredients && r.ingredients.length
-    ? `<ul class="detail-list">${r.ingredients.map(ing => `<li>${ing}</li>`).join('')}</ul>`
+    ? `<ul class="detail-list">${r.ingredients.map(ing => `<li>${escapeHTML(ing)}</li>`).join('')}</ul>`
     : `<p class="detail-empty">No ingredients listed.</p>`;
 
   const instructionsList = r.instructions && r.instructions.length
-    ? `<ol class="detail-list detail-instructions">${r.instructions.map(step => `<li>${step}</li>`).join('')}</ol>`
+    ? `<ol class="detail-list detail-instructions">${r.instructions.map(step => `<li>${escapeHTML(step)}</li>`).join('')}</ol>`
     : `<p class="detail-empty">No instructions provided.</p>`;
 
   document.getElementById('d-body').innerHTML = `
-    ${imageHero}
-    <div class="detail-meta">
-      <span class="card-badge ${badgeClass}">${badgeLabel}</span>
-      <div class="detail-tags">${tagsList}</div>
-    </div>
-
     <div class="detail-section">
       <h3 class="detail-section-title">Ingredients</h3>
       ${ingredientsList}
@@ -241,14 +198,7 @@ async function removeRecipe(id) {
   }
 }
 
-// ── Filter & search ─────────────────────────────────────────────
-function filterTag(btn) {
-  document.querySelectorAll('.tag-pill').forEach(p => p.classList.remove('active'));
-  btn.classList.add('active');
-  activeTag = btn.dataset.tag;
-  render();
-}
-
+// ── Search ──────────────────────────────────────────────────────
 function handleSearch(val) {
   searchQuery = val.trim().toLowerCase();
   render();
