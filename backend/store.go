@@ -13,11 +13,11 @@ var ErrRecipeNotFound = errors.New("recipe not found")
 type RecipeStore struct {
 	mu   sync.RWMutex
 	path string
-	book RecipeBook
+	book recipeBook
 }
 
 func NewRecipeStore(path string) (*RecipeStore, error) {
-	store := &RecipeStore{path: path, book: RecipeBook{Recipes: []Recipe{}}}
+	store := &RecipeStore{path: path, book: recipeBook{recipes: []recipe{}}}
 	data, err := os.ReadFile(path)
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -29,57 +29,54 @@ func NewRecipeStore(path string) (*RecipeStore, error) {
 	if err := json.Unmarshal(data, &store.book); err != nil {
 		return nil, err
 	}
-	if store.book.Recipes == nil {
-		store.book.Recipes = []Recipe{}
+	if store.book.recipes == nil {
+		store.book.recipes = []recipe{}
 	}
 	return store, nil
 }
 
-func (s *RecipeStore) List() []Recipe {
+func (s *RecipeStore) List() []recipe {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 
-	return append([]Recipe{}, s.book.Recipes...)
+	return append([]recipe{}, s.book.recipes...)
 }
 
-func (s *RecipeStore) Create(recipe Recipe) (Recipe, error) {
+func (s *RecipeStore) Create(entry recipe) (recipe, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	if recipe.Tags == nil {
-		recipe.Tags = []string{}
+	if entry.ingredients == nil {
+		entry.ingredients = []string{}
 	}
-	if recipe.Ingredients == nil {
-		recipe.Ingredients = []string{}
-	}
-	if recipe.Instructions == nil {
-		recipe.Instructions = []string{}
+	if entry.instructions == nil {
+		entry.instructions = []string{}
 	}
 
 	maxID := 0
-	for _, existing := range s.book.Recipes {
-		if existing.ID > maxID {
-			maxID = existing.ID
+	for _, existing := range s.book.recipes {
+		if existing.id > maxID {
+			maxID = existing.id
 		}
 	}
-	recipe.ID = maxID + 1
+	entry.id = maxID + 1
 
-	updated := RecipeBook{Recipes: append(append([]Recipe{}, s.book.Recipes...), recipe)}
+	updated := recipeBook{recipes: append(append([]recipe{}, s.book.recipes...), entry)}
 	if err := s.save(updated); err != nil {
-		return Recipe{}, err
+		return recipe{}, err
 	}
 	s.book = updated
-	return recipe, nil
+	return entry, nil
 }
 
 func (s *RecipeStore) Delete(id int) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
-	updatedRecipes := make([]Recipe, 0, len(s.book.Recipes))
+	updatedRecipes := make([]recipe, 0, len(s.book.recipes))
 	found := false
-	for _, recipe := range s.book.Recipes {
-		if recipe.ID == id {
+	for _, recipe := range s.book.recipes {
+		if recipe.id == id {
 			found = true
 			continue
 		}
@@ -89,7 +86,7 @@ func (s *RecipeStore) Delete(id int) error {
 		return ErrRecipeNotFound
 	}
 
-	updated := RecipeBook{Recipes: updatedRecipes}
+	updated := recipeBook{recipes: updatedRecipes}
 	if err := s.save(updated); err != nil {
 		return err
 	}
@@ -97,7 +94,7 @@ func (s *RecipeStore) Delete(id int) error {
 	return nil
 }
 
-func (s *RecipeStore) save(book RecipeBook) error {
+func (s *RecipeStore) save(book recipeBook) error {
 	dir := filepath.Dir(s.path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err

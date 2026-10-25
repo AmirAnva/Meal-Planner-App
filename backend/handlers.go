@@ -27,31 +27,23 @@ func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
-	var recipe Recipe
+	var recipe recipe
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&recipe); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
 		return
 	}
-	if strings.TrimSpace(recipe.Name) == "" {
+	if strings.TrimSpace(recipe.name) == "" {
 		writeError(w, http.StatusBadRequest, "name is required")
 		return
 	}
-	if recipe.Source == "" {
-		recipe.Source = "personal"
-	}
-	if recipe.Source != "personal" && recipe.Source != "external" {
-		writeError(w, http.StatusBadRequest, "source must be personal or external")
-		return
-	}
-
 	created, err := api.store.Create(recipe)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not save recipe")
 		return
 	}
-	w.Header().Set("Location", fmt.Sprintf("/api/recipes/%d", created.ID))
+	w.Header().Set("Location", fmt.Sprintf("/api/recipes/%d", created.id))
 	writeJSON(w, http.StatusCreated, created)
 }
 

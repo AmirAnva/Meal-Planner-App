@@ -14,7 +14,7 @@ func TestRecipeAPIRejectsEmptyName(t *testing.T) {
 	request := httptest.NewRequest(
 		http.MethodPost,
 		"/api/recipes",
-		strings.NewReader(`{"name":"","source":"personal"}`),
+		strings.NewReader(`{"name":"","ingredients":[],"instructions":[]}`),
 	)
 	request.Header.Set("Content-Type", "application/json")
 

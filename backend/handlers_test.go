@@ -20,6 +20,7 @@ func newTestAPI(t *testing.T) (http.Handler, string) {
 	return NewAPI(store), dataPath
 }
 
+// Chelsea Zhuang: checks the recipe collection lifecycle.
 func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 	handler, _ := newTestAPI(t)
 
@@ -29,7 +30,7 @@ func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 	if listResponse.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want %d", listResponse.Code, http.StatusOK)
 	}
-	var empty []Recipe
+	var empty []recipeJSON
 	if err := json.Unmarshal(listResponse.Body.Bytes(), &empty); err != nil {
 		t.Fatalf("decode empty list: %v", err)
 	}
@@ -37,18 +38,18 @@ func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 		t.Fatalf("GET returned %d recipes, want 0", len(empty))
 	}
 
-	createRequest := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Oatmeal","source":"personal","tags":["breakfast"]}`))
+	createRequest := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Oatmeal","ingredients":[],"instructions":[]}`))
 	createRequest.Header.Set("Content-Type", "application/json")
 	createResponse := httptest.NewRecorder()
 	handler.ServeHTTP(createResponse, createRequest)
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("POST status = %d, want %d: %s", createResponse.Code, http.StatusCreated, createResponse.Body.String())
 	}
-	var created Recipe
+	var created recipeJSON
 	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode created recipe: %v", err)
 	}
-	if created.ID != 1 || created.Name != "Oatmeal" || len(created.Tags) != 1 || created.Tags[0] != "breakfast" {
+	if created.ID != 1 || created.Name != "Oatmeal" {
 		t.Fatalf("unexpected created recipe: %+v", created)
 	}
 
@@ -66,9 +67,10 @@ func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 	}
 }
 
+// Chelsea Zhuang: checks that created recipes survive a reload.
 func TestRecipeAPIPersistsRecipes(t *testing.T) {
 	handler, dataPath := newTestAPI(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Soup","source":"external","tags":[]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Soup","ingredients":[],"instructions":[]}`))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
@@ -79,11 +81,12 @@ func TestRecipeAPIPersistsRecipes(t *testing.T) {
 	if err != nil {
 		t.Fatalf("reload recipe store: %v", err)
 	}
-	if got := reloaded.List(); len(got) != 1 || got[0].Name != "Soup" {
+	if got := reloaded.List(); len(got) != 1 || got[0].name != "Soup" {
 		t.Fatalf("reloaded recipes = %+v, want one Soup recipe", got)
 	}
 }
 
+// Chelsea Zhuang: checks the response for an unknown recipe ID.
 func TestRecipeAPIDeleteMissingRecipe(t *testing.T) {
 	handler, _ := newTestAPI(t)
 	request := httptest.NewRequest(http.MethodDelete, "/api/recipes/42", nil)

@@ -114,8 +114,6 @@ async function submitRecipe(e) {
 
   const payload = {
     name,
-    source: 'personal',
-    tags: [],
     ingredients,
     instructions,
   };
