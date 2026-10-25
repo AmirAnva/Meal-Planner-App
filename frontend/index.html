@@ -130,6 +130,12 @@
           <label class="check-label"><input type="checkbox" value="snack"     /> Snack</label>
         </div>
 
+        <label class="form-label">Ingredients <span class="optional">(one per line)</span></label>
+        <textarea class="form-input form-textarea" id="f-ingredients" rows="3" placeholder="e.g.&#10;2 slices sourdough bread&#10;1 ripe avocado&#10;1 pinch red pepper flakes"></textarea>
+
+        <label class="form-label">Instructions <span class="optional">(one step per line)</span></label>
+        <textarea class="form-input form-textarea" id="f-instructions" rows="3" placeholder="e.g.&#10;Toast bread until golden&#10;Mash avocado with salt and pepper&#10;Spread onto warm toast"></textarea>
+
         <div class="modal-actions">
           <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn-add">Save Recipe</button>
@@ -139,6 +145,27 @@
     </div>
   </div>
   <!-- ══════════ END MODAL ══════════ -->
+
+  <!-- ══════════ RECIPE DETAIL MODAL ══════════ -->
+  <div class="modal-backdrop" id="detail-backdrop" onclick="backdropDetailClick(event)" style="display:none">
+    <div class="modal modal-detail">
+
+      <div class="modal-header">
+        <h2 id="d-name">Recipe Details</h2>
+        <button class="modal-close" onclick="closeDetailModal()">&#x2715;</button>
+      </div>
+
+      <div class="modal-body detail-body" id="d-body">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="modal-actions" style="padding: 0 1.4rem 1.25rem;">
+        <button type="button" class="btn-secondary" onclick="closeDetailModal()">Close</button>
+      </div>
+
+    </div>
+  </div>
+  <!-- ══════════ END RECIPE DETAIL MODAL ══════════ -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>
