@@ -1,15 +1,41 @@
-// ── Seed data (matches wireframe) ──────────────────────────────
-let recipes = [
-  { id: 1, name: 'Oatmeal & Eggs',   image: '', emoji: '🥣', source: 'personal', tags: ['breakfast', 'quick'] },
-  { id: 2, name: 'Banana Bread',     image: 'https://upload.wikimedia.org/wikipedia/commons/thumb/4/43/Banana_bread_loaf.jpg/640px-Banana_bread_loaf.jpg', emoji: '🍞', source: 'external', tags: ['breakfast', 'snack'] },
-  { id: 3, name: 'Chicken and Rice', image: '', emoji: '🍗', source: 'external', tags: ['lunch', 'dinner'] },
-  { id: 4, name: 'Popcorn Chicken',  image: '', emoji: '🍿', source: 'personal', tags: ['lunch', 'quick', 'snack'] },
-];
+// ── API base URL ────────────────────────────────────────────────
+const API_BASE = 'http://localhost:8080';
 
-let nextId      = 5;
+// ── State ───────────────────────────────────────────────────────
+let recipes     = [];
 let activeTag   = 'all';
 let searchQuery = '';
 let toastTimer;
+
+// ── Emoji helper ────────────────────────────────────────────────
+const TAG_EMOJIS = { breakfast: '🥣', lunch: '🥗', dinner: '🍽️', quick: '⚡', snack: '🍿' };
+
+function emojiForTags(tags) {
+  if (!tags || !tags.length) return '🍴';
+  return TAG_EMOJIS[tags[0]] || '🍴';
+}
+
+// ── API helpers ─────────────────────────────────────────────────
+async function apiFetch(path, options = {}) {
+  const res = await fetch(API_BASE + path, options);
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error(body.error || `HTTP ${res.status}`);
+  }
+  // 204 No Content has no body
+  if (res.status === 204) return null;
+  return res.json();
+}
+
+// ── Load recipes from backend ────────────────────────────────────
+async function loadRecipes() {
+  try {
+    recipes = await apiFetch('/api/recipes');
+    render();
+  } catch (err) {
+    showToast('Could not load recipes: ' + err.message);
+  }
+}
 
 // ── Render ──────────────────────────────────────────────────────
 function render() {
@@ -18,12 +44,12 @@ function render() {
 
   let filtered = activeTag === 'all'
     ? recipes
-    : recipes.filter(r => r.tags.includes(activeTag));
+    : recipes.filter(r => r.tags && r.tags.includes(activeTag));
 
   if (searchQuery) {
     filtered = filtered.filter(r =>
       r.name.toLowerCase().includes(searchQuery) ||
-      r.tags.some(t => t.includes(searchQuery))
+      (r.tags || []).some(t => t.includes(searchQuery))
     );
   }
 
@@ -40,14 +66,15 @@ function render() {
 function cardHTML(r) {
   const badgeClass = r.source === 'personal' ? 'badge-personal' : 'badge-external';
   const badgeLabel = r.source === 'personal' ? 'Personal' : 'External';
+  const emoji      = emojiForTags(r.tags);
 
   const imageBlock = r.image
     ? `<img class="card-image" src="${r.image}" alt="${r.name}"
          onerror="this.style.display='none';this.nextElementSibling.style.display='flex'" />
-       <div class="card-image-placeholder" style="display:none">${r.emoji}</div>`
-    : `<div class="card-image-placeholder">${r.emoji}</div>`;
+       <div class="card-image-placeholder" style="display:none">${emoji}</div>`
+    : `<div class="card-image-placeholder">${emoji}</div>`;
 
-  const tagList = r.tags.length
+  const tagList = r.tags && r.tags.length
     ? r.tags.map(t => `<span class="card-tag">${t}</span>`).join('')
     : `<span class="card-tag" style="color:#bbb">no tags</span>`;
 
@@ -82,7 +109,7 @@ function backdropClick(e) {
   if (e.target === e.currentTarget) closeModal();
 }
 
-function submitRecipe(e) {
+async function submitRecipe(e) {
   e.preventDefault();
 
   const name   = document.getElementById('f-name').value.trim();
@@ -91,27 +118,45 @@ function submitRecipe(e) {
   const tags   = [...document.querySelectorAll('.modal-body input[type="checkbox"]:checked')]
                    .map(cb => cb.value);
 
-  const emojis = { breakfast: '🥣', lunch: '🥗', dinner: '🍽️', quick: '⚡', snack: '🍿' };
-  const emoji  = tags.length ? (emojis[tags[0]] || '🍴') : '🍴';
+  const payload = { name, image, source, tags };
 
-  recipes.push({ id: nextId++, name, image, emoji, source, tags });
-  closeModal();
-  render();
-  showToast(`"${name}" added!`);
+  try {
+    const created = await apiFetch('/api/recipes', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    recipes.push(created);
+    closeModal();
+    render();
+    showToast(`"${created.name}" added!`);
+  } catch (err) {
+    showToast('Could not add recipe: ' + err.message);
+  }
 }
 
 // ── Remove recipe ───────────────────────────────────────────────
-function removeRecipe(id) {
+async function removeRecipe(id) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
+
   card.style.transition = 'opacity .2s, transform .2s';
   card.style.opacity    = '0';
   card.style.transform  = 'scale(.95)';
-  setTimeout(() => {
-    recipes = recipes.filter(r => r.id !== id);
-    render();
-    showToast('Recipe removed.');
-  }, 200);
+
+  try {
+    await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
+    setTimeout(() => {
+      recipes = recipes.filter(r => r.id !== id);
+      render();
+      showToast('Recipe removed.');
+    }, 200);
+  } catch (err) {
+    // Restore card if the delete failed
+    card.style.opacity   = '1';
+    card.style.transform = 'scale(1)';
+    showToast('Could not remove recipe: ' + err.message);
+  }
 }
 
 // ── Filter & search ─────────────────────────────────────────────
@@ -142,4 +187,4 @@ document.addEventListener('keydown', e => {
 });
 
 // ── Init ────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', render);
+document.addEventListener('DOMContentLoaded', loadRecipes);
