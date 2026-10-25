@@ -69,22 +69,6 @@
       </button>
     </div>
 
-    <!-- Tag filter row -->
-    <div class="filter-row">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#999" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <polygon points="22 3 2 3 10 12.46 10 19 14 21 14 12.46 22 3"/>
-      </svg>
-      <span class="filter-label">Filter by tags :</span>
-      <div class="tag-pills">
-        <button class="tag-pill active" data-tag="all"       onclick="filterTag(this)">Everything</button>
-        <button class="tag-pill"        data-tag="breakfast" onclick="filterTag(this)">Breakfast</button>
-        <button class="tag-pill"        data-tag="lunch"     onclick="filterTag(this)">Lunch</button>
-        <button class="tag-pill"        data-tag="dinner"    onclick="filterTag(this)">Dinner</button>
-        <button class="tag-pill"        data-tag="quick"     onclick="filterTag(this)">Quick</button>
-        <button class="tag-pill"        data-tag="snack"     onclick="filterTag(this)">Etc.</button>
-      </div>
-    </div>
-
     <!-- Recipe card grid -->
     <div class="recipe-grid" id="recipe-grid"></div>
 
@@ -112,23 +96,11 @@
         <label class="form-label">Recipe Name <span class="required">*</span></label>
         <input class="form-input" id="f-name" type="text" placeholder="e.g. Avocado Toast" required />
 
-        <label class="form-label">Image URL <span class="optional">(optional)</span></label>
-        <input class="form-input" id="f-image" type="url" placeholder="https://…" />
+        <label class="form-label">Ingredients <span class="optional">(one per line)</span></label>
+        <textarea class="form-input form-textarea" id="f-ingredients" rows="3" placeholder="e.g.&#10;2 slices sourdough bread&#10;1 ripe avocado&#10;1 pinch red pepper flakes"></textarea>
 
-        <label class="form-label">Source</label>
-        <div class="radio-group">
-          <label class="radio-label"><input type="radio" name="source" value="personal" checked /> Personal</label>
-          <label class="radio-label"><input type="radio" name="source" value="external" />  External</label>
-        </div>
-
-        <label class="form-label">Tags</label>
-        <div class="checkbox-group">
-          <label class="check-label"><input type="checkbox" value="breakfast" /> Breakfast</label>
-          <label class="check-label"><input type="checkbox" value="lunch"     /> Lunch</label>
-          <label class="check-label"><input type="checkbox" value="dinner"    /> Dinner</label>
-          <label class="check-label"><input type="checkbox" value="quick"     /> Quick</label>
-          <label class="check-label"><input type="checkbox" value="snack"     /> Snack</label>
-        </div>
+        <label class="form-label">Instructions <span class="optional">(one step per line)</span></label>
+        <textarea class="form-input form-textarea" id="f-instructions" rows="3" placeholder="e.g.&#10;Toast bread until golden&#10;Mash avocado with salt and pepper&#10;Spread onto warm toast"></textarea>
 
         <div class="modal-actions">
           <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
@@ -139,6 +111,27 @@
     </div>
   </div>
   <!-- ══════════ END MODAL ══════════ -->
+
+  <!-- ══════════ RECIPE DETAIL MODAL ══════════ -->
+  <div class="modal-backdrop" id="detail-backdrop" onclick="backdropDetailClick(event)" style="display:none">
+    <div class="modal modal-detail">
+
+      <div class="modal-header">
+        <h2 id="d-name">Recipe Details</h2>
+        <button class="modal-close" onclick="closeDetailModal()">&#x2715;</button>
+      </div>
+
+      <div class="modal-body detail-body" id="d-body">
+        <!-- Rendered dynamically -->
+      </div>
+
+      <div class="modal-actions" style="padding: 0 1.4rem 1.25rem;">
+        <button type="button" class="btn-secondary" onclick="closeDetailModal()">Close</button>
+      </div>
+
+    </div>
+  </div>
+  <!-- ══════════ END RECIPE DETAIL MODAL ══════════ -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>
