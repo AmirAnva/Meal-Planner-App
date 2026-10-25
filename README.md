@@ -5,7 +5,7 @@ Meal Planner is a lightweight recipe app with a static frontend and a Go API sta
 ## Project structure
 
 - `frontend/` contains the browser app.
-- `backend/` contains the Go HTTP API starter.
+- `backend/` contains the Go HTTP API and recipe JSON store.
 
 ## Run the frontend
 
@@ -15,7 +15,7 @@ Open `frontend/index.html` in a browser.
 
 ```sh
 cd backend
-go run ./cmd/server
+go run .
 ```
 
-The API listens on `:8080`. Check `GET /health` for a JSON health response.
+The API listens on `:8080`. Recipe data is stored in `backend/data/recipes.json`.
