@@ -2,7 +2,9 @@ name: Go tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+    branches: [main]
 
 permissions:
   contents: read
@@ -17,11 +19,8 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version-file: go.mod
+          go-version-file: backend/go.mod
 
-      - name: Test API module
-        run: go test ./...
-
-      - name: Test backend starter module
+      - name: Test backend module
         run: go test ./...
         working-directory: backend
