@@ -12,11 +12,12 @@ import (
 func newTestAPI(t *testing.T) (http.Handler, string) {
 	t.Helper()
 
-	dataPath := filepath.Join(t.TempDir(), "recipes.json")
-	store, err := NewRecipeStore(dataPath)
+	dataPath := filepath.Join(t.TempDir(), "recipes.db")
+	store, err := OpenSQLiteRepository(dataPath)
 	if err != nil {
 		t.Fatalf("NewRecipeStore() error = %v", err)
 	}
+	t.Cleanup(func() { _ = store.Close() })
 	return NewAPI(store), dataPath
 }
 
@@ -30,7 +31,7 @@ func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 	if listResponse.Code != http.StatusOK {
 		t.Fatalf("GET status = %d, want %d", listResponse.Code, http.StatusOK)
 	}
-	var empty []recipeJSON
+	var empty []Recipe
 	if err := json.Unmarshal(listResponse.Body.Bytes(), &empty); err != nil {
 		t.Fatalf("decode empty list: %v", err)
 	}
@@ -45,7 +46,7 @@ func TestRecipeAPIListCreateAndDelete(t *testing.T) {
 	if createResponse.Code != http.StatusCreated {
 		t.Fatalf("POST status = %d, want %d: %s", createResponse.Code, http.StatusCreated, createResponse.Body.String())
 	}
-	var created recipeJSON
+	var created Recipe
 	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
 		t.Fatalf("decode created recipe: %v", err)
 	}
@@ -77,11 +78,16 @@ func TestRecipeAPIPersistsRecipes(t *testing.T) {
 		t.Fatalf("POST status = %d, want %d", response.Code, http.StatusCreated)
 	}
 
-	reloaded, err := NewRecipeStore(dataPath)
+	reloaded, err := OpenSQLiteRepository(dataPath)
 	if err != nil {
 		t.Fatalf("reload recipe store: %v", err)
 	}
-	if got := reloaded.List(); len(got) != 1 || got[0].name != "Soup" {
+	defer reloaded.Close()
+	recipes, err := reloaded.ListRecipes()
+	if err != nil {
+		t.Fatalf("list persisted recipes: %v", err)
+	}
+	if got := recipes; len(got) != 1 || got[0].Name != "Soup" {
 		t.Fatalf("reloaded recipes = %+v, want one Soup recipe", got)
 	}
 }

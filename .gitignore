@@ -4,6 +4,7 @@
 
 # Runtime data and local environment files
 /backend/data/recipes.json
+/backend/data/*.db
 .env
 .env.*
 !.env.example
