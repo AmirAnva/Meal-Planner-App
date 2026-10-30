@@ -17,8 +17,41 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
+	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
 	return cors(mux)
+}
+
+// updateRecipe retains the recipe edit flow introduced on main while delegating
+// validation and persistence to the model and SQLite repository.
+func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
+		return
+	}
+	var recipe Recipe
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&recipe); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
+		return
+	}
+	recipe.ID = id
+	updated, err := api.store.UpdateRecipe(recipe)
+	if err != nil {
+		if errors.Is(err, ErrRecipeNameRequired) {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusNotFound, "recipe not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save recipe")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
 }
 
 func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
@@ -84,7 +117,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
