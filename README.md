@@ -4,39 +4,42 @@ Meal Planner is a lightweight recipe app with a static frontend and a Go API bac
 
 ## Prerequisites
 
-- [Go 1.22+](https://go.dev/dl/) — required to run the backend
-- A modern web browser — required to run the frontend
+- [Go 1.22+](https://go.dev/dl/) to run the backend
+- A modern web browser to run the frontend
 
-## Project Structure
+## Project structure
 
-- `frontend/` — browser app (HTML, CSS, JavaScript)
-- `backend/` — Go HTTP API and JSON recipe store
+- `frontend/` contains the browser app (HTML, CSS, and JavaScript).
+- `backend/` contains the Go HTTP API, MVC models, and SQLite repository.
+- `REQUIREMENTS.md` contains the MVP requirements and technical specification.
 
-## Setup & Running
-
-### 1. Start the backend first
+## Run the backend
 
 ```sh
 cd backend
 go run .
 ```
 
-The API listens on `http://localhost:8080`. Recipe data is stored in `backend/data/recipes.json`.
+The API listens on `http://localhost:8080`. SQLite creates its database
+automatically at `data/recipes.db` relative to the backend working directory.
+Override the local defaults with `--port` and `--database`:
 
-> **Note:** The backend must be running before you open the frontend, or recipes will not load.
+```sh
+go run . --port 9000 --database ./data/local.db
+```
 
-### 2. Open the frontend
+## Run the frontend
 
-Open `frontend/index.html` in your browser.
+Start the backend first, then open `frontend/index.html` in a browser.
 
-## Run the tests
+## Run the backend tests
 
 ```sh
 cd backend
 go test ./...
 ```
 
-## API Endpoints
+## API endpoints
 
 | Method | Endpoint | Description |
 |---|---|---|

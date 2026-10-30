@@ -9,10 +9,10 @@ import (
 )
 
 type API struct {
-	store *RecipeStore
+	store *SQLiteRepository
 }
 
-func NewAPI(store *RecipeStore) http.Handler {
+func NewAPI(store *SQLiteRepository) http.Handler {
 	api := &API{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
@@ -22,49 +22,26 @@ func NewAPI(store *RecipeStore) http.Handler {
 	return cors(mux)
 }
 
-func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, api.store.List())
-}
-
-func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
-	var entry recipe
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&entry); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
-		return
-	}
-	created, err := api.store.Create(entry)
-	if err != nil {
-		if errors.Is(err, ErrInvalidRecipe) {
-			writeError(w, http.StatusBadRequest, err.Error())
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not save recipe")
-		return
-	}
-	w.Header().Set("Location", fmt.Sprintf("/api/recipes/%d", created.id))
-	writeJSON(w, http.StatusCreated, created)
-}
-
-// --------------- Updates the Recipes Feature Added. ------------------
+// updateRecipe retains the recipe edit flow introduced on main while delegating
+// validation and persistence to the model and SQLite repository.
 func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
 		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
 		return
 	}
-	var entry recipe
+	var recipe Recipe
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&entry); err != nil {
+	if err := decoder.Decode(&recipe); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
 		return
 	}
-	updated, err := api.store.Update(id, entry)
+	recipe.ID = id
+	updated, err := api.store.UpdateRecipe(recipe)
 	if err != nil {
-		if errors.Is(err, ErrInvalidRecipe) {
-			writeError(w, http.StatusBadRequest, err.Error())
+		if errors.Is(err, ErrRecipeNameRequired) {
+			writeError(w, http.StatusBadRequest, "name is required")
 			return
 		}
 		if errors.Is(err, ErrRecipeNotFound) {
@@ -77,14 +54,43 @@ func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-// Updated to suit professor requirments better
+func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
+	recipes, err := api.store.ListRecipes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load recipes")
+		return
+	}
+	writeJSON(w, http.StatusOK, recipes)
+}
+
+func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
+	var recipe Recipe
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&recipe); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
+		return
+	}
+	if err := recipe.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	created, err := api.store.CreateRecipe(recipe)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save recipe")
+		return
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/recipes/%d", created.ID))
+	writeJSON(w, http.StatusCreated, created)
+}
+
 func (api *API) deleteRecipe(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
 		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
 		return
 	}
-	if err := api.store.Delete(id); err != nil {
+	if err := api.store.DeleteRecipe(id); err != nil {
 		if errors.Is(err, ErrRecipeNotFound) {
 			writeError(w, http.StatusNotFound, "recipe not found")
 			return

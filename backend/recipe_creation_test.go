@@ -13,11 +13,11 @@ import (
 func TestCreateRecipeInputCases(t *testing.T) {
 	testCases := []struct {
 		name   string
-		recipe recipeJSON
+		recipe Recipe
 	}{
 		{
 			name: "ordinary recipe information",
-			recipe: recipeJSON{
+			recipe: Recipe{
 				Name:         "Oatmeal and Eggs",
 				Ingredients:  []string{"oats", "eggs"},
 				Instructions: []string{"Cook the oats", "Serve with eggs"},
@@ -25,7 +25,7 @@ func TestCreateRecipeInputCases(t *testing.T) {
 		},
 		{
 			name: "unusual characters are preserved",
-			recipe: recipeJSON{
+			recipe: Recipe{
 				Name:         `Crème brûlée — "chef's choice" 🥣`,
 				Ingredients:  []string{"1½ cups cream", "𓀟 𰻝𰻝面 zest"},
 				Instructions: []string{"Stir gently; don't boil."},
@@ -33,7 +33,7 @@ func TestCreateRecipeInputCases(t *testing.T) {
 		},
 		{
 			name: "empty ingredients and instructions",
-			recipe: recipeJSON{
+			recipe: Recipe{
 				Name:         "Mystery Soup",
 				Ingredients:  []string{},
 				Instructions: []string{},
@@ -41,7 +41,7 @@ func TestCreateRecipeInputCases(t *testing.T) {
 		},
 		{
 			name: "markup-like text remains ordinary data",
-			recipe: recipeJSON{
+			recipe: Recipe{
 				Name:         `'); DROP TABLE recipes; -- <script>alert('xss')</script>`,
 				Ingredients:  []string{`<img src=x onerror=alert(1)>`},
 				Instructions: []string{},
@@ -77,7 +77,7 @@ func TestCreateRecipeInputCases(t *testing.T) {
 				)
 			}
 
-			var created recipeJSON
+			var created Recipe
 			if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
 				t.Fatalf("decode created recipe: %v", err)
 			}

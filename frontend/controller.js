@@ -116,4 +116,3 @@ document.addEventListener('keydown', e => {
 
 // ── Init ──────────────────────────────────────────────────────────
 document.addEventListener('DOMContentLoaded', loadRecipes);
-
