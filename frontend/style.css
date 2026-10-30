@@ -223,11 +223,9 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  opacity: 0;
-  transition: opacity .15s, background .15s, color .15s;
+  transition: background .15s, color .15s;
   z-index: 2;
 }
-.recipe-card:hover .card-remove { opacity: 1; }
 .card-remove:hover {
   background: #fee2e2;
   color: #dc2626;

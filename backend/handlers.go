@@ -6,7 +6,6 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
-	"strings"
 )
 
 type API struct {
@@ -18,6 +17,7 @@ func NewAPI(store *RecipeStore) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
+	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
 	return cors(mux)
 }
@@ -27,19 +27,19 @@ func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
-	var recipe recipe
+	var entry recipe
 	decoder := json.NewDecoder(r.Body)
 	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&recipe); err != nil {
+	if err := decoder.Decode(&entry); err != nil {
 		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
 		return
 	}
-	if strings.TrimSpace(recipe.name) == "" {
-		writeError(w, http.StatusBadRequest, "name is required")
-		return
-	}
-	created, err := api.store.Create(recipe)
+	created, err := api.store.Create(entry)
 	if err != nil {
+		if errors.Is(err, ErrInvalidRecipe) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		writeError(w, http.StatusInternalServerError, "could not save recipe")
 		return
 	}
@@ -47,6 +47,37 @@ func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, created)
 }
 
+// --------------- Updates the Recipes Feature Added. ------------------
+func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
+		return
+	}
+	var entry recipe
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&entry); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
+		return
+	}
+	updated, err := api.store.Update(id, entry)
+	if err != nil {
+		if errors.Is(err, ErrInvalidRecipe) {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusNotFound, "recipe not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save recipe")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+// Updated to suit professor requirments better
 func (api *API) deleteRecipe(w http.ResponseWriter, r *http.Request) {
 	id, err := strconv.Atoi(r.PathValue("id"))
 	if err != nil || id < 1 {
@@ -80,7 +111,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
-		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
 		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
