@@ -10,6 +10,7 @@ Meal Planner helps users organize recipes, find meals based on available ingredi
 - **R1:** Create and save recipes with names and ingredients.
 - **R2:** View saved recipes and their ingredients.
 - **R3:** Edit existing recipes and save changes.
+- **R4:** Delete a recipe that is no longer needed.
 
 ### Recipe Discovery
 - **R4:** Search for recipes by name or keyword.
