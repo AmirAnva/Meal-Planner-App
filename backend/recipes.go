@@ -63,3 +63,8 @@ func (m Meal) Validate() error {
 	}
 	return nil
 }
+
+// calendar is the API response containing meal assignments for each day.
+type calendar struct {
+	Days []Day `json:"days"`
+}
