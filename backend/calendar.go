@@ -8,11 +8,7 @@ type calendar struct {
 func newCalendar() calendar {
 	return calendar{
 		Days: []Day{{
-			Meals: []Meal{
-				{MealType: Breakfast},
-				{MealType: Lunch},
-				{MealType: Dinner},
-			},
+			Meals: []Meal{},
 		}},
 	}
 }
