@@ -8,28 +8,27 @@ type calendar struct {
 func newCalendar() calendar {
 	return calendar{
 		Days: []Day{{
-			Meals: []Meal{
-				{MealType: Breakfast},
-				{MealType: Lunch},
-				{MealType: Dinner},
-			},
+			Meals: []Meal{},
 		}},
 	}
 }
 
 func (c *calendar) addRecipeToMeal(dayIndex int, mealType MealType, recipe Recipe) {
-	if dayIndex < 0 || dayIndex >= len(c.Days) {
+	if dayIndex < 0 || dayIndex >= len(c.Days) || !mealType.Valid() {
 		return
 	}
 
 	for i := range c.Days[dayIndex].Meals {
 		if c.Days[dayIndex].Meals[i].MealType == mealType {
+			c.Days[dayIndex].Meals[i].RecipeID = recipe.ID
 			c.Days[dayIndex].Meals[i].Recipe = recipe
 			return
 		}
 	}
 
 	c.Days[dayIndex].Meals = append(c.Days[dayIndex].Meals, Meal{
+		DayID:    c.Days[dayIndex].ID,
+		RecipeID: recipe.ID,
 		MealType: mealType,
 		Recipe:   recipe,
 	})
