@@ -18,7 +18,7 @@
 
     <ul class="nav-links">
       <li>
-        <a href="#" class="nav-item" onclick="showToast('Calendar view coming soon!'); return false;">
+        <a href="#" id="calendar-nav" class="nav-item" onclick="showCalendar(); return false;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2"/>
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
@@ -28,7 +28,7 @@
         </a>
       </li>
       <li>
-        <a href="#" class="nav-item active" onclick="return false">
+        <a href="#" id="recipes-nav" class="nav-item active" onclick="showRecipes(); return false">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
@@ -58,6 +58,15 @@
   <!-- ══════════ MAIN ══════════ -->
   <main class="page-content">
 
+    <section id="calendar-view" style="display:none">
+      <div class="page-header">
+        <h1 class="page-title">Meal <span class="title-accent">Calendar</span></h1>
+        <button class="btn-secondary" onclick="loadCalendar()">Refresh</button>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+    </section>
+
+    <section id="recipes-view">
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">Recipes &nbsp;<span class="title-accent">Favorites</span></h1>
@@ -78,6 +87,7 @@
       <p>No recipes here yet.</p>
       <button class="btn-add" onclick="openModal()">Add your first recipe</button>
     </div>
+    </section>
 
   </main>
 
