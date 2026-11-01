@@ -5,6 +5,8 @@ const API_BASE = 'http://localhost:8080';
 // ── State ─────────────────────────────────────────────────────────
 let recipes     = [];
 let searchQuery = '';
+let calendarDays = [];
+let calendarStart = new Date();
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -25,6 +27,57 @@ async function loadRecipes() {
     render();
   } catch (err) {
     showToast('Could not load recipes: ' + err.message);
+  }
+
+  function formatDate(date) {
+    const year = date.getFullYear();
+    const month = String(date.getMonth() + 1).padStart(2, '0');
+    const day = String(date.getDate()).padStart(2, '0');
+    return `${year}-${month}-${day}`;
+  }
+
+  async function loadCalendar() {
+    try {
+      calendarStart = new Date();
+      const data = await apiFetch(`/api/calendar?start=${formatDate(calendarStart)}&days=7`);
+      calendarDays = data.days || [];
+      renderCalendar();
+    } catch (err) {
+      showToast('Could not load calendar: ' + err.message);
+    }
+  }
+
+  async function assignMeal(date, mealType, recipeId) {
+    try {
+      if (!recipeId) {
+        await apiFetch(`/api/calendar/meals?date=${date}&meal_type=${mealType}`, { method: 'DELETE' });
+      } else {
+        await apiFetch('/api/calendar/meals', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ date, meal_type: mealType, recipe_id: Number(recipeId) }),
+        });
+      }
+      await loadCalendar();
+    } catch (err) {
+      if (!recipeId && err.message === 'meal not found') return;
+      showToast('Could not update meal: ' + err.message);
+    }
+  }
+
+  function showCalendar() {
+    document.getElementById('recipes-view').style.display = 'none';
+    document.getElementById('calendar-view').style.display = 'block';
+    document.getElementById('calendar-nav').classList.add('active');
+    document.getElementById('recipes-nav').classList.remove('active');
+    loadCalendar();
+  }
+
+  function showRecipes() {
+    document.getElementById('calendar-view').style.display = 'none';
+    document.getElementById('recipes-view').style.display = 'block';
+    document.getElementById('calendar-nav').classList.remove('active');
+    document.getElementById('recipes-nav').classList.add('active');
   }
 }
 
