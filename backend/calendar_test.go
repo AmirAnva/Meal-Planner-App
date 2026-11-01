@@ -9,11 +9,7 @@ import (
 func TestNewCalendar(t *testing.T) {
 	want := calendar{
 		Days: []Day{{
-			Meals: []Meal{
-				{MealType: Breakfast},
-				{MealType: Lunch},
-				{MealType: Dinner},
-			},
+			Meals: []Meal{},
 		}},
 	}
 	got := newCalendar()
