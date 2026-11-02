@@ -18,14 +18,45 @@ function render() {
   let filtered = recipes;
 
   if (searchQuery) {
-    filtered = filtered.filter(r =>
-      r.name.toLowerCase().includes(searchQuery)
-    );
+    const keywords = searchQuery
+      .split(',')
+      .map(keyword => keyword.trim())
+      .filter(Boolean);
+  
+    filtered = filtered
+      .map(recipe => {
+        const name = recipe.name.toLowerCase();
+        const ingredients = (recipe.ingredients || [])
+          .join(' ')
+          .toLowerCase();
+  
+        const matchCount = keywords.filter(keyword =>
+          name.includes(keyword) ||
+          ingredients.includes(keyword)
+        ).length;
+  
+        return { recipe, matchCount };
+      })
+      .filter(result => result.matchCount > 0)
+      .sort((a, b) => b.matchCount - a.matchCount)
+      .map(result => result.recipe);
   }
 
   if (filtered.length === 0) {
     grid.innerHTML = '';
     empty.style.display = 'block';
+  
+    const message = empty.querySelector('p');
+    const addButton = empty.querySelector('button');
+  
+    if (searchQuery) {
+      message.textContent = 'No recipes match your search.';
+      addButton.style.display = 'none';
+    } else {
+      message.textContent = 'No recipes here yet.';
+      addButton.style.display = 'inline-block';
+    }
+  
     return;
   }
 
