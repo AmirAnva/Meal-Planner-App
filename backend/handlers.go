@@ -17,6 +17,7 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	api := &API{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
+	mux.HandleFunc("GET /api/recipes/search", api.searchRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
 	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
@@ -49,15 +50,19 @@ func (api *API) getCalendar(w http.ResponseWriter, r *http.Request) {
 	days := make([]Day, 0, daysCount)
 	for offset := 0; offset < daysCount; offset++ {
 		date := startDate.AddDate(0, 0, offset).Format("2006-01-02")
-		day, err := api.store.GetOrCreateDay(date)
-		if err != nil {
+		day := Day{Date: date, Meals: []Meal{}}
+		existingDay, err := api.store.GetDay(date)
+		if err != nil && !errors.Is(err, ErrDayNotFound) {
 			writeError(w, http.StatusInternalServerError, "could not load calendar")
 			return
 		}
-		day.Meals, err = api.store.ListMeals(day.ID)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, "could not load calendar")
-			return
+		if err == nil {
+			day = existingDay
+			day.Meals, err = api.store.ListMeals(day.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "could not load calendar")
+				return
+			}
 		}
 		days = append(days, day)
 	}
@@ -166,6 +171,16 @@ func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
 	recipes, err := api.store.ListRecipes()
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load recipes")
+		return
+	}
+	writeJSON(w, http.StatusOK, recipes)
+}
+
+func (api *API) searchRecipes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	recipes, err := api.store.SearchRecipes(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not search recipes")
 		return
 	}
 	writeJSON(w, http.StatusOK, recipes)
