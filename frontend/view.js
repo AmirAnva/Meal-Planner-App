@@ -11,11 +11,11 @@ function escapeHTML(str) {
 }
 
 // ── Recipe grid ─────────────────────────────────────────────────
-function render() {
+function render(recipeList = recipes) {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
 
-  const filtered = recipes;
+  const filtered = recipeList;
 
   if (filtered.length === 0) {
     grid.innerHTML = '';

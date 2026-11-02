@@ -4,9 +4,9 @@ const API_BASE = 'http://localhost:8080';
 
 // ── State ─────────────────────────────────────────────────────────
 let recipes     = [];
-let searchQuery = '';
 let calendarDays = [];
 let calendarStart = new Date();
+let searchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -134,12 +134,20 @@ function editFromDetail() {
 
 // ── Search ────────────────────────────────────────────────────────
 async function handleSearch(val) {
-  searchQuery = val.trim();
-  try {
-    const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(searchQuery)}`);
-    recipes = Array.isArray(data) ? data : [];
+  const query = val.trim();
+  const requestId = ++searchRequestId;
+  if (!query) {
     render();
+    return;
+  }
+
+  try {
+    const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
+    if (requestId !== searchRequestId) return;
+    const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+    render(results);
   } catch (err) {
+    if (requestId !== searchRequestId) return;
     showToast('Could not search recipes: ' + err.message);
   }
 }
