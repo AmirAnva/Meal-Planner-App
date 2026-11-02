@@ -15,19 +15,23 @@ function render() {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
 
-  let filtered = recipes;
+  const filtered = recipes;
 
-  if (searchQuery) {
-    filtered = filtered.filter(r =>
-      r.name.toLowerCase().includes(searchQuery)
-    );
+  if (filtered.length === 0) {
+    grid.innerHTML = '';
+    empty.style.display = 'block';
+    return;
   }
 
-  function renderCalendar() {
-    const grid = document.getElementById('calendar-grid');
-    if (!grid) return;
-    const mealTypes = ['breakfast', 'lunch', 'dinner'];
-    grid.innerHTML = calendarDays.map(day => `
+  empty.style.display = 'none';
+  grid.innerHTML = filtered.map(cardHTML).join('');
+}
+
+function renderCalendar() {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  const mealTypes = ['breakfast', 'lunch', 'dinner'];
+  grid.innerHTML = calendarDays.map(day => `
       <article class="calendar-day">
         <h2>${new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
           weekday: 'long', month: 'short', day: 'numeric'
@@ -47,17 +51,7 @@ function render() {
             </label>`;
         }).join('')}
       </article>
-    `).join('');
-  }
-
-  if (filtered.length === 0) {
-    grid.innerHTML = '';
-    empty.style.display = 'block';
-    return;
-  }
-
-  empty.style.display = 'none';
-  grid.innerHTML = filtered.map(cardHTML).join('');
+  `).join('');
 }
 
 function cardHTML(r) {
@@ -165,4 +159,41 @@ function showToast(msg) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function setActiveView(view) {
+  document.getElementById('recipes-view').style.display = view === 'recipes' ? 'block' : 'none';
+  document.getElementById('calendar-view').style.display = view === 'calendar' ? 'block' : 'none';
+  document.getElementById('calendar-nav').classList.toggle('active', view === 'calendar');
+  document.getElementById('recipes-nav').classList.toggle('active', view === 'recipes');
+}
+
+function animateRecipeRemoval(id) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return false;
+  card.style.transition = 'opacity .2s, transform .2s';
+  card.style.opacity = '0';
+  card.style.transform = 'scale(.95)';
+  return true;
+}
+
+function restoreRecipeCard(id) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+  card.style.opacity = '1';
+  card.style.transform = 'scale(1)';
+}
+
+function readRecipeForm() {
+  const editId = document.getElementById('modal-edit-id').value;
+  const name = document.getElementById('f-name').value.trim();
+  const ingredients = document.getElementById('f-ingredients').value
+    .split('\n').map(value => value.trim()).filter(Boolean);
+  const instructions = document.getElementById('f-instructions').value
+    .split('\n').map(value => value.trim()).filter(Boolean);
+  return { editId, payload: { name, ingredients, instructions } };
+}
+
+function getDetailRecipeId() {
+  return document.getElementById('detail-recipe-id').value;
 }
