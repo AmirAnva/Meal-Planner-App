@@ -4,7 +4,9 @@ const API_BASE = 'http://localhost:8080';
 
 // ── State ─────────────────────────────────────────────────────────
 let recipes     = [];
-let searchQuery = '';
+let calendarDays = [];
+let calendarStart = new Date();
+let searchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -28,18 +30,56 @@ async function loadRecipes() {
   }
 }
 
+function formatDate(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+async function loadCalendar() {
+  try {
+    calendarStart = new Date();
+    const data = await apiFetch(`/api/calendar?start=${formatDate(calendarStart)}&days=7`);
+    calendarDays = data.days || [];
+    renderCalendar();
+  } catch (err) {
+    showToast('Could not load calendar: ' + err.message);
+  }
+}
+
+async function assignMeal(date, mealType, recipeId) {
+  try {
+    if (!recipeId) {
+      await apiFetch(`/api/calendar/meals?date=${date}&meal_type=${mealType}`, { method: 'DELETE' });
+    } else {
+      await apiFetch('/api/calendar/meals', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ date, meal_type: mealType, recipe_id: Number(recipeId) }),
+      });
+    }
+    await loadCalendar();
+  } catch (err) {
+    if (!recipeId && err.message === 'meal not found') return;
+    showToast('Could not update meal: ' + err.message);
+  }
+}
+
+function showCalendar() {
+  setActiveView('calendar');
+  loadCalendar();
+}
+
+function showRecipes() {
+  setActiveView('recipes');
+}
+
 // ── Submit add or edit ────────────────────────────────────────────
 async function submitRecipe(e) {
   e.preventDefault();
 
-  const editId      = document.getElementById('modal-edit-id').value;
-  const name        = document.getElementById('f-name').value.trim();
-  const ingredients = document.getElementById('f-ingredients').value
-                        .split('\n').map(s => s.trim()).filter(Boolean);
-  const instructions = document.getElementById('f-instructions').value
-                        .split('\n').map(s => s.trim()).filter(Boolean);
-
-  const payload = { name, ingredients, instructions };
+  const { editId, payload } = readRecipeForm();
 
   try {
     if (editId) {
@@ -72,38 +112,44 @@ async function submitRecipe(e) {
 
 // ── Remove recipe ─────────────────────────────────────────────────
 async function removeRecipe(id) {
-  const card = document.getElementById(`card-${id}`);
-  if (!card) return;
-
-  card.style.transition = 'opacity .2s, transform .2s';
-  card.style.opacity    = '0';
-  card.style.transform  = 'scale(.95)';
+  if (!animateRecipeRemoval(id)) return;
 
   try {
     await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
-    setTimeout(() => {
-      recipes = recipes.filter(r => r.id !== Number(id));
-      render();
-      showToast('Recipe removed.');
-    }, 200);
+    recipes = recipes.filter(r => r.id !== Number(id));
+    render();
+    showToast('Recipe removed.');
   } catch (err) {
-    card.style.opacity   = '1';
-    card.style.transform = 'scale(1)';
+    restoreRecipeCard(id);
     showToast('Could not remove recipe: ' + err.message);
   }
 }
 
 // ── Edit button from detail modal ─────────────────────────────────
 function editFromDetail() {
-  const id = document.getElementById('detail-recipe-id').value;
+  const id = getDetailRecipeId();
   closeDetailModal();
   openEditModal(id);
 }
 
 // ── Search ────────────────────────────────────────────────────────
-function handleSearch(val) {
-  searchQuery = val.trim().toLowerCase();
-  render();
+async function handleSearch(val) {
+  const query = val.trim();
+  const requestId = ++searchRequestId;
+  if (!query) {
+    render();
+    return;
+  }
+
+  try {
+    const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
+    if (requestId !== searchRequestId) return;
+    const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+    render(results);
+  } catch (err) {
+    if (requestId !== searchRequestId) return;
+    showToast('Could not search recipes: ' + err.message);
+  }
 }
 
 // ── Keyboard shortcuts ────────────────────────────────────────────

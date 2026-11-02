@@ -102,3 +102,26 @@ func TestRecipeAPIDeleteMissingRecipe(t *testing.T) {
 		t.Fatalf("DELETE status = %d, want %d", response.Code, http.StatusNotFound)
 	}
 }
+
+func TestRecipeAPISearch(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Tomato Soup","ingredients":["tomato"]}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create recipe status = %d, want %d", response.Code, http.StatusCreated)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/recipes/search?q=TOMATO", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("search status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var recipes []Recipe
+	if err := json.Unmarshal(response.Body.Bytes(), &recipes); err != nil {
+		t.Fatalf("decode search results: %v", err)
+	}
+	if len(recipes) != 1 || recipes[0].Name != "Tomato Soup" {
+		t.Fatalf("search results = %+v, want Tomato Soup", recipes)
+	}
+}
