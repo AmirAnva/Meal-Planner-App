@@ -429,3 +429,45 @@ body {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
 }
+
+
+/* Calendar page */
+
+.meal-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 1.5rem;
+  margin-top: 2rem;
+}
+
+.meal-slot {
+  background: white;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  padding: 1.5rem;
+}
+
+.meal-slot h2 {
+  font-size: 1.2rem;
+  margin-bottom: 1rem;
+}
+
+.meal-slot p {
+  color: #777;
+  margin-bottom: 1.5rem;
+}
+
+#calendar-date {
+  margin-top: .5rem;
+  color: #777;
+}
+
+.nav-logo {
+  cursor: pointer;
+}
+
+@media (max-width: 768px) {
+  .meal-grid {
+    grid-template-columns: 1fr;
+  }
+}

@@ -106,6 +106,41 @@ function handleSearch(val) {
   render();
 }
 
+
+// ── Page navigation ──────────────────────────────
+function navigateTo(page) {
+  const isRecipes = page === 'recipes';
+
+  document.getElementById('recipes-view').style.display =
+    isRecipes ? 'block' : 'none';
+
+  document.getElementById('calendar-view').style.display =
+    isRecipes ? 'none' : 'block';
+
+  document.querySelector('.nav-search').style.display =
+    isRecipes ? 'flex' : 'none';
+
+  document.querySelectorAll('.nav-item').forEach(link => {
+    link.classList.toggle(
+      'active',
+      link.dataset.page === page
+    );
+  });
+
+  if (!isRecipes) {
+    document.getElementById('calendar-date').textContent =
+      new Date().toLocaleDateString('en-US', {
+        weekday: 'long',
+        month: 'long',
+        day: 'numeric',
+        year: 'numeric'
+      });
+  }
+
+  window.scrollTo(0, 0);
+}
+
+
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
