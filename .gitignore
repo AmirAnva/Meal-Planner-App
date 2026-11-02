@@ -1,6 +1,7 @@
 # Go build output
 /backend/server
 /backend/*.out
+/backend/backend.exe
 
 # Runtime data and local environment files
 /backend/data/recipes.json
