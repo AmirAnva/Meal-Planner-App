@@ -17,6 +17,7 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	api := &API{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
+	mux.HandleFunc("GET /api/recipes/search", api.searchRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
 	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
@@ -59,10 +60,33 @@ func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, updated)
 }
 
-func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
-	recipes, err := api.store.ListRecipes()
+func (api *API) listRecipes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("query")
+	}
+	var recipes []Recipe
+	var err error
+	if query != "" {
+		recipes, err = api.store.SearchRecipes(query)
+	} else {
+		recipes, err = api.store.ListRecipes()
+	}
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not load recipes")
+		return
+	}
+	writeJSON(w, http.StatusOK, recipes)
+}
+
+func (api *API) searchRecipes(w http.ResponseWriter, r *http.Request) {
+	query := r.URL.Query().Get("q")
+	if query == "" {
+		query = r.URL.Query().Get("query")
+	}
+	recipes, err := api.store.SearchRecipes(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not search recipes")
 		return
 	}
 	writeJSON(w, http.StatusOK, recipes)

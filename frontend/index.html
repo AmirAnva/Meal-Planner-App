@@ -44,13 +44,15 @@
       <input type="text" id="search-input" placeholder="Search recipes or ingredients…" oninput="handleSearch(this.value)" />
     </div>
 
+    <!-- 
     <a href="#" class="nav-profile" onclick="return false" title="Profile">
       <svg width="21" height="21" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
         <circle cx="12" cy="7" r="4"/>
       </svg>
     </a>
-
+    -->
+    
   </nav>
   <!-- ══════════ END NAVBAR ══════════ -->
 
@@ -92,28 +94,40 @@
   
     <div class="meal-grid">
   
-      <div class="meal-slot">
+      <div class="meal-slot" id="meal-slot-breakfast">
         <h2>🌅 Breakfast</h2>
-        <p id="breakfast-recipe">No recipe assigned</p>
-        <button class="btn-add" onclick="openMealSelector('breakfast')">
-          Add Recipe
-        </button>
+        <div id="breakfast-recipe" class="meal-recipe-assigned">
+          <p>No recipe assigned</p>
+        </div>
+        <div id="breakfast-actions" class="meal-slot-actions">
+          <button class="btn-add" onclick="openMealSelector('breakfast')">
+            Add Recipe
+          </button>
+        </div>
       </div>
   
-      <div class="meal-slot">
+      <div class="meal-slot" id="meal-slot-lunch">
         <h2>☀️ Lunch</h2>
-        <p id="lunch-recipe">No recipe assigned</p>
-        <button class="btn-add" onclick="openMealSelector('lunch')">
-          Add Recipe
-        </button>
+        <div id="lunch-recipe" class="meal-recipe-assigned">
+          <p>No recipe assigned</p>
+        </div>
+        <div id="lunch-actions" class="meal-slot-actions">
+          <button class="btn-add" onclick="openMealSelector('lunch')">
+            Add Recipe
+          </button>
+        </div>
       </div>
   
-      <div class="meal-slot">
+      <div class="meal-slot" id="meal-slot-dinner">
         <h2>🌙 Dinner</h2>
-        <p id="dinner-recipe">No recipe assigned</p>
-        <button class="btn-add" onclick="openMealSelector('dinner')">
-          Add Recipe
-        </button>
+        <div id="dinner-recipe" class="meal-recipe-assigned">
+          <p>No recipe assigned</p>
+        </div>
+        <div id="dinner-actions" class="meal-slot-actions">
+          <button class="btn-add" onclick="openMealSelector('dinner')">
+            Add Recipe
+          </button>
+        </div>
       </div>
   
     </div>
@@ -183,6 +197,40 @@
     </div>
   </div>
   <!-- ══════════ END RECIPE DETAIL MODAL ══════════ -->
+
+  <!-- ══════════ SELECT MEAL RECIPE MODAL ══════════ -->
+  <div class="modal-backdrop" id="meal-modal-backdrop" onclick="backdropMealClick(event)" style="display:none">
+    <div class="modal">
+
+      <div class="modal-header">
+        <h2 id="meal-modal-title">Select Recipe</h2>
+        <button class="modal-close" onclick="closeMealModal()">&#x2715;</button>
+      </div>
+
+      <div class="modal-body">
+        <input type="hidden" id="selected-meal-type" value="" />
+
+        <label class="form-label" style="margin-top:0;">Choose from saved recipes</label>
+        <input
+          type="text"
+          id="meal-recipe-search"
+          class="form-input"
+          placeholder="Search recipes or ingredients…"
+          oninput="handleMealRecipeSearch(this.value)"
+        />
+
+        <div class="meal-picker-list" id="meal-picker-list">
+          <!-- Populated dynamically -->
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem;">
+          <button type="button" class="btn-secondary" onclick="closeMealModal()">Cancel</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- ══════════ END SELECT MEAL RECIPE MODAL ══════════ -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>

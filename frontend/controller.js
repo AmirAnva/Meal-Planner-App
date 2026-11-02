@@ -3,8 +3,11 @@
 const API_BASE = 'http://localhost:8080';
 
 // ── State ─────────────────────────────────────────────────────────
-let recipes     = [];
-let searchQuery = '';
+let recipes         = [];
+let calendarMeals   = {};
+let activeMealType  = '';
+let mealSearchQuery = '';
+let searchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -17,14 +20,44 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
+function getTodayDateString() {
+  const d = new Date();
+  const year = d.getFullYear();
+  const month = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 // ── Load recipes ──────────────────────────────────────────────────
 async function loadRecipes() {
   try {
     const data = await apiFetch('/api/recipes');
     recipes = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
-    render();
+    const searchInput = document.getElementById('search-input');
+    if (searchInput && searchInput.value.trim()) {
+      handleSearch(searchInput.value);
+    } else {
+      render(recipes, false);
+    }
   } catch (err) {
     showToast('Could not load recipes: ' + err.message);
+  }
+}
+
+// ── Load calendar ─────────────────────────────────────────────────
+async function loadCalendar() {
+  try {
+    const today = getTodayDateString();
+    const data = await apiFetch(`/api/calendar?date=${today}`);
+    calendarMeals = {};
+    if (data && Array.isArray(data.meals)) {
+      data.meals.forEach(m => {
+        calendarMeals[m.meal_type] = m;
+      });
+    }
+    renderCalendar();
+  } catch (err) {
+    showToast('Could not load calendar: ' + err.message);
   }
 }
 
@@ -51,7 +84,13 @@ async function submitRecipe(e) {
       });
       recipes = recipes.map(r => r.id === updated.id ? updated : r);
       closeModal();
-      render();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && searchInput.value.trim()) {
+        handleSearch(searchInput.value);
+      } else {
+        render(recipes, false);
+      }
+      loadCalendar();
       showToast(`"${updated.name}" updated!`);
     } else {
       // Create new recipe
@@ -62,7 +101,12 @@ async function submitRecipe(e) {
       });
       recipes.push(created);
       closeModal();
-      render();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && searchInput.value.trim()) {
+        handleSearch(searchInput.value);
+      } else {
+        render(recipes, false);
+      }
       showToast(`"${created.name}" added!`);
     }
   } catch (err) {
@@ -83,7 +127,13 @@ async function removeRecipe(id) {
     await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
     setTimeout(() => {
       recipes = recipes.filter(r => r.id !== Number(id));
-      render();
+      const searchInput = document.getElementById('search-input');
+      if (searchInput && searchInput.value.trim()) {
+        handleSearch(searchInput.value);
+      } else {
+        render(recipes, false);
+      }
+      loadCalendar();
       showToast('Recipe removed.');
     }, 200);
   } catch (err) {
@@ -100,14 +150,28 @@ function editFromDetail() {
   openEditModal(id);
 }
 
-// ── Search ────────────────────────────────────────────────────────
-function handleSearch(val) {
-  searchQuery = val.trim().toLowerCase();
-  render();
+// ── Search in Recipes (Ingredient & Name search via backend) ──────
+async function handleSearch(val) {
+  const query = val.trim();
+  const requestId = ++searchRequestId;
+
+  if (!query) {
+    render(recipes, false);
+    return;
+  }
+
+  try {
+    const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
+    if (requestId !== searchRequestId) return;
+    const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+    render(results, true);
+  } catch (err) {
+    if (requestId !== searchRequestId) return;
+    showToast('Could not search recipes: ' + err.message);
+  }
 }
 
-
-// ── Page navigation ──────────────────────────────
+// ── Page navigation ───────────────────────────────────────────────
 function navigateTo(page) {
   const isRecipes = page === 'recipes';
 
@@ -135,19 +199,92 @@ function navigateTo(page) {
         day: 'numeric',
         year: 'numeric'
       });
+    loadCalendar();
   }
 
   window.scrollTo(0, 0);
 }
 
+// ── Calendar meal selector & assignment ───────────────────────────
+async function openMealSelector(mealType) {
+  activeMealType = mealType;
+  mealSearchQuery = '';
+  if (!recipes || recipes.length === 0) {
+    try {
+      const data = await apiFetch('/api/recipes');
+      recipes = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+    } catch (_) {
+      // If fetching fails, we continue with empty list
+    }
+  }
+  openMealSelectorModal(mealType, recipes);
+}
+
+function handleMealRecipeSearch(val) {
+  mealSearchQuery = val.trim().toLowerCase();
+  let filtered = recipes;
+  if (mealSearchQuery) {
+    filtered = filtered.filter(r =>
+      r.name.toLowerCase().includes(mealSearchQuery) ||
+      (r.ingredients && r.ingredients.some(ing => ing.toLowerCase().includes(mealSearchQuery)))
+    );
+  }
+  renderMealPickerList(filtered);
+}
+
+async function selectRecipeForMeal(recipeId) {
+  const mealType = activeMealType || document.getElementById('selected-meal-type').value;
+  if (!mealType) return;
+
+  const payload = {
+    date: getTodayDateString(),
+    meal_type: mealType,
+    recipe_id: Number(recipeId),
+  };
+
+  try {
+    const updated = await apiFetch('/api/calendar/meals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    calendarMeals[mealType] = updated;
+    closeMealModal();
+    renderCalendar();
+    const recipeName = (updated && updated.recipe && updated.recipe.name) ? updated.recipe.name : 'Recipe';
+    const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+    showToast(`"${recipeName}" assigned to ${displayType}!`);
+  } catch (err) {
+    showToast('Could not assign meal: ' + err.message);
+  }
+}
+
+async function removeMeal(mealType) {
+  const today = getTodayDateString();
+  try {
+    await apiFetch(`/api/calendar/meals?date=${today}&meal_type=${mealType}`, {
+      method: 'DELETE',
+    });
+    delete calendarMeals[mealType];
+    renderCalendar();
+    const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+    showToast(`Removed recipe from ${displayType}.`);
+  } catch (err) {
+    showToast('Could not remove meal: ' + err.message);
+  }
+}
 
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
     closeModal();
     closeDetailModal();
+    closeMealModal();
   }
 });
 
 // ── Init ──────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', loadRecipes);
+document.addEventListener('DOMContentLoaded', () => {
+  loadRecipes();
+  loadCalendar();
+});
