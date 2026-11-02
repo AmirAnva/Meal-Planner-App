@@ -65,14 +65,7 @@ async function loadCalendar() {
 async function submitRecipe(e) {
   e.preventDefault();
 
-  const editId      = document.getElementById('modal-edit-id').value;
-  const name        = document.getElementById('f-name').value.trim();
-  const ingredients = document.getElementById('f-ingredients').value
-                        .split('\n').map(s => s.trim()).filter(Boolean);
-  const instructions = document.getElementById('f-instructions').value
-                        .split('\n').map(s => s.trim()).filter(Boolean);
-
-  const payload = { name, ingredients, instructions };
+  const { editId, payload } = readRecipeForm();
 
   try {
     if (editId) {
@@ -116,12 +109,7 @@ async function submitRecipe(e) {
 
 // ── Remove recipe ─────────────────────────────────────────────────
 async function removeRecipe(id) {
-  const card = document.getElementById(`card-${id}`);
-  if (!card) return;
-
-  card.style.transition = 'opacity .2s, transform .2s';
-  card.style.opacity    = '0';
-  card.style.transform  = 'scale(.95)';
+  if (!animateRecipeRemoval(id)) return;
 
   try {
     await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
@@ -137,15 +125,14 @@ async function removeRecipe(id) {
       showToast('Recipe removed.');
     }, 200);
   } catch (err) {
-    card.style.opacity   = '1';
-    card.style.transform = 'scale(1)';
+    restoreRecipeCard(id);
     showToast('Could not remove recipe: ' + err.message);
   }
 }
 
 // ── Edit button from detail modal ─────────────────────────────────
 function editFromDetail() {
-  const id = document.getElementById('detail-recipe-id').value;
+  const id = getDetailRecipeId();
   closeDetailModal();
   openEditModal(id);
 }

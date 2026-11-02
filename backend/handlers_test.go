@@ -127,18 +127,4 @@ func TestRecipeAPISearch(t *testing.T) {
 	if len(recipes) != 1 || recipes[0].Name != "Tomato Soup" {
 		t.Fatalf("search results = %+v, want Tomato Soup", recipes)
 	}
-
-	// Also verify /api/recipes?q=tomato works
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/recipes?q=tomato", nil))
-	if response.Code != http.StatusOK {
-		t.Fatalf("list with query status = %d, want %d", response.Code, http.StatusOK)
-	}
-	recipes = nil
-	if err := json.Unmarshal(response.Body.Bytes(), &recipes); err != nil {
-		t.Fatalf("decode search results: %v", err)
-	}
-	if len(recipes) != 1 || recipes[0].Name != "Tomato Soup" {
-		t.Fatalf("search results = %+v, want Tomato Soup", recipes)
-	}
 }

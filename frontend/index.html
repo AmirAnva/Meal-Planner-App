@@ -60,6 +60,15 @@
   <!-- ══════════ MAIN ══════════ -->
   <main class="page-content" id="recipes-view">
 
+    <section id="calendar-view" style="display:none">
+      <div class="page-header">
+        <h1 class="page-title">Meal <span class="title-accent">Calendar</span></h1>
+        <button class="btn-secondary" onclick="loadCalendar()">Refresh</button>
+      </div>
+      <div id="calendar-grid" class="calendar-grid"></div>
+    </section>
+
+    <section id="recipes-view">
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">Recipes &nbsp;<span class="title-accent">Favorites</span></h1>
@@ -80,6 +89,7 @@
       <p>No recipes here yet.</p>
       <button class="btn-add" onclick="openModal()">Add your first recipe</button>
     </div>
+    </section>
 
   </main>
 

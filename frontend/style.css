@@ -260,6 +260,52 @@ body {
 .empty-state p    { margin-bottom: 1.2rem; font-size: 1rem; }
 
 /* ═══════════════════════════════════════
+   CALENDAR
+═══════════════════════════════════════ */
+.calendar-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(140px, 1fr));
+  gap: .8rem;
+  overflow-x: auto;
+  padding-bottom: .5rem;
+}
+.calendar-day {
+  min-width: 140px;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 12px;
+  padding: 1rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,.04);
+}
+.calendar-day h2 {
+  font-size: .95rem;
+  margin-bottom: 1rem;
+  color: #2e7d32;
+}
+.meal-slot {
+  display: block;
+  margin-top: .8rem;
+}
+.meal-slot span {
+  display: block;
+  margin-bottom: .3rem;
+  font-size: .78rem;
+  font-weight: 700;
+  color: #555;
+  text-transform: capitalize;
+}
+.meal-slot select {
+  width: 100%;
+  min-width: 0;
+  padding: .45rem .35rem;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  background: #fff;
+  font: inherit;
+  font-size: .78rem;
+}
+
+/* ═══════════════════════════════════════
    MODAL
 ═══════════════════════════════════════ */
 .modal-backdrop {

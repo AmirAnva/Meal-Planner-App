@@ -223,6 +223,9 @@ func (r *SQLiteRepository) AssignMeal(dayID, recipeID int, mealType MealType) (M
 	if err := meal.Validate(); err != nil {
 		return Meal{}, err
 	}
+	if _, err := r.GetRecipe(recipeID); err != nil {
+		return Meal{}, err
+	}
 	_, err := r.db.Exec(`INSERT INTO meals(day_id, recipe_id, meal_type) VALUES (?, ?, ?) ON CONFLICT(day_id, meal_type) DO UPDATE SET recipe_id=excluded.recipe_id`, dayID, recipeID, string(mealType))
 	if err != nil {
 		return Meal{}, err

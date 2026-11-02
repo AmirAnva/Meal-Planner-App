@@ -38,6 +38,33 @@ function render(recipeList = recipes, isSearch = false) {
   grid.innerHTML = filtered.map(cardHTML).join('');
 }
 
+function renderCalendar() {
+  const grid = document.getElementById('calendar-grid');
+  if (!grid) return;
+  const mealTypes = ['breakfast', 'lunch', 'dinner'];
+  grid.innerHTML = calendarDays.map(day => `
+      <article class="calendar-day">
+        <h2>${new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
+          weekday: 'long', month: 'short', day: 'numeric'
+        })}</h2>
+        ${mealTypes.map(type => {
+          const meal = (day.meals || []).find(item => item.meal_type === type);
+          const options = recipes.map(recipe =>
+            `<option value="${recipe.id}" ${meal && meal.recipe_id === recipe.id ? 'selected' : ''}>${escapeHTML(recipe.name)}</option>`
+          ).join('');
+          return `
+            <label class="meal-slot">
+              <span>${type}</span>
+              <select onchange="assignMeal('${day.date}', '${type}', this.value)">
+                <option value="">Not assigned</option>
+                ${options}
+              </select>
+            </label>`;
+        }).join('')}
+      </article>
+  `).join('');
+}
+
 function cardHTML(r) {
   const ingCount  = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
   const stepCount = (r.instructions && r.instructions.length) ? r.instructions.length : 0;
@@ -273,4 +300,41 @@ function showToast(msg) {
   t.classList.add('show');
   clearTimeout(toastTimer);
   toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+function setActiveView(view) {
+  document.getElementById('recipes-view').style.display = view === 'recipes' ? 'block' : 'none';
+  document.getElementById('calendar-view').style.display = view === 'calendar' ? 'block' : 'none';
+  document.getElementById('calendar-nav').classList.toggle('active', view === 'calendar');
+  document.getElementById('recipes-nav').classList.toggle('active', view === 'recipes');
+}
+
+function animateRecipeRemoval(id) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return false;
+  card.style.transition = 'opacity .2s, transform .2s';
+  card.style.opacity = '0';
+  card.style.transform = 'scale(.95)';
+  return true;
+}
+
+function restoreRecipeCard(id) {
+  const card = document.getElementById(`card-${id}`);
+  if (!card) return;
+  card.style.opacity = '1';
+  card.style.transform = 'scale(1)';
+}
+
+function readRecipeForm() {
+  const editId = document.getElementById('modal-edit-id').value;
+  const name = document.getElementById('f-name').value.trim();
+  const ingredients = document.getElementById('f-ingredients').value
+    .split('\n').map(value => value.trim()).filter(Boolean);
+  const instructions = document.getElementById('f-instructions').value
+    .split('\n').map(value => value.trim()).filter(Boolean);
+  return { editId, payload: { name, ingredients, instructions } };
+}
+
+function getDetailRecipeId() {
+  return document.getElementById('detail-recipe-id').value;
 }

@@ -47,3 +47,6 @@ go test ./...
 | POST | `/api/recipes` | Create a recipe |
 | PUT | `/api/recipes/{id}` | Update a recipe |
 | DELETE | `/api/recipes/{id}` | Delete a recipe |
+| GET | `/api/calendar?start=YYYY-MM-DD&days=7` | Get calendar days and assigned meals |
+| POST | `/api/calendar/meals` | Assign or replace a meal (`date`, `meal_type`, `recipe_id`) |
+| DELETE | `/api/calendar/meals?date=YYYY-MM-DD&meal_type=breakfast` | Remove a meal assignment |
