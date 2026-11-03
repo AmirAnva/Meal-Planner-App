@@ -3,11 +3,11 @@
 const API_BASE = 'http://localhost:8080';
 
 // ── State ─────────────────────────────────────────────────────────
-let recipes         = [];
-let calendarMeals   = {};
-let activeMealType  = '';
-let mealSearchQuery = '';
-let searchRequestId = 0;
+let recipes             = [];
+let calendarMeals       = {};
+let activeMealType      = '';
+let searchRequestId     = 0;
+let mealSearchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -219,7 +219,6 @@ function showRecipes() {
 // ── Calendar meal selector & assignment ───────────────────────────
 async function openMealSelector(mealType) {
   activeMealType = mealType;
-  mealSearchQuery = '';
   if (!recipes || recipes.length === 0) {
     try {
       const data = await apiFetch('/api/recipes');
@@ -231,16 +230,24 @@ async function openMealSelector(mealType) {
   openMealSelectorModal(mealType, recipes);
 }
 
-function handleMealRecipeSearch(val) {
-  mealSearchQuery = val.trim().toLowerCase();
-  let filtered = recipes;
-  if (mealSearchQuery) {
-    filtered = filtered.filter(r =>
-      (r.name && r.name.toLowerCase().includes(mealSearchQuery)) ||
-      (r.ingredients && r.ingredients.some(ing => ing.toLowerCase().includes(mealSearchQuery)))
-    );
+async function handleMealRecipeSearch(val) {
+  const query = val.trim();
+  const requestId = ++mealSearchRequestId;
+
+  if (!query) {
+    renderMealPickerList(recipes);
+    return;
   }
-  renderMealPickerList(filtered);
+
+  try {
+    const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
+    if (requestId !== mealSearchRequestId) return;
+    const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
+    renderMealPickerList(results);
+  } catch (err) {
+    if (requestId !== mealSearchRequestId) return;
+    showToast('Could not search recipes: ' + err.message);
+  }
 }
 
 async function selectRecipeForMeal(recipeId) {
