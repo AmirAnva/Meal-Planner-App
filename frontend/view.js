@@ -14,6 +14,7 @@ function escapeHTML(str) {
 function render(recipeList = recipes) {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
+  if (!grid || !empty) return;
 
   const filtered = recipeList;
 
@@ -25,33 +26,6 @@ function render(recipeList = recipes) {
 
   empty.style.display = 'none';
   grid.innerHTML = filtered.map(cardHTML).join('');
-}
-
-function renderCalendar() {
-  const grid = document.getElementById('calendar-grid');
-  if (!grid) return;
-  const mealTypes = ['breakfast', 'lunch', 'dinner'];
-  grid.innerHTML = calendarDays.map(day => `
-      <article class="calendar-day">
-        <h2>${new Date(`${day.date}T00:00:00`).toLocaleDateString(undefined, {
-          weekday: 'long', month: 'short', day: 'numeric'
-        })}</h2>
-        ${mealTypes.map(type => {
-          const meal = (day.meals || []).find(item => item.meal_type === type);
-          const options = recipes.map(recipe =>
-            `<option value="${recipe.id}" ${meal && meal.recipe_id === recipe.id ? 'selected' : ''}>${escapeHTML(recipe.name)}</option>`
-          ).join('');
-          return `
-            <label class="meal-slot">
-              <span>${type}</span>
-              <select onchange="assignMeal('${day.date}', '${type}', this.value)">
-                <option value="">Not assigned</option>
-                ${options}
-              </select>
-            </label>`;
-        }).join('')}
-      </article>
-  `).join('');
 }
 
 function cardHTML(r) {
@@ -74,6 +48,123 @@ function cardHTML(r) {
         <div class="card-meta">${metaText}</div>
       </div>
     </div>`;
+}
+
+// ── Calendar rendering ───────────────────────────────────────────
+function renderCalendar() {
+  const mealTypes = ['breakfast', 'lunch', 'dinner'];
+  mealTypes.forEach(type => {
+    const meal = calendarMeals[type];
+    const recipeElem = document.getElementById(`${type}-recipe`);
+    const actionsElem = document.getElementById(`${type}-actions`);
+
+    if (meal && meal.recipe && meal.recipe.name) {
+      const r = meal.recipe;
+      const ingCount = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
+      const stepCount = (r.instructions && r.instructions.length) ? r.instructions.length : 0;
+      let meta = '';
+      if (ingCount > 0 || stepCount > 0) {
+        const parts = [];
+        if (ingCount > 0) parts.push(`${ingCount} ingredient${ingCount === 1 ? '' : 's'}`);
+        if (stepCount > 0) parts.push(`${stepCount} step${stepCount === 1 ? '' : 's'}`);
+        meta = parts.join(' • ');
+      }
+
+      if (recipeElem) {
+        recipeElem.innerHTML = `
+          <div>
+            <span class="meal-recipe-title" onclick="openDetailModal(${r.id})" title="Click to view recipe details">
+              ${escapeHTML(r.name)}
+            </span>
+            ${meta ? `<div class="meal-recipe-sub">${escapeHTML(meta)}</div>` : ''}
+          </div>
+        `;
+      }
+
+      if (actionsElem) {
+        actionsElem.innerHTML = `
+          <button class="btn-add" onclick="openMealSelector('${type}')">Change Recipe</button>
+          <button class="btn-secondary" onclick="removeMeal('${type}')">Remove</button>
+        `;
+      }
+    } else {
+      if (recipeElem) {
+        recipeElem.innerHTML = `<p style="color: #777;">No recipe assigned</p>`;
+      }
+      if (actionsElem) {
+        actionsElem.innerHTML = `
+          <button class="btn-add" onclick="openMealSelector('${type}')">
+            Add Recipe
+          </button>
+        `;
+      }
+    }
+  });
+}
+
+// ── Meal Selector Modal ──────────────────────────────────────────
+function openMealSelectorModal(mealType, recipesList) {
+  const backdrop = document.getElementById('meal-modal-backdrop');
+  if (!backdrop) return;
+
+  const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
+  const titleElem = document.getElementById('meal-modal-title');
+  if (titleElem) titleElem.textContent = `Assign Recipe for ${displayType}`;
+
+  const typeInput = document.getElementById('selected-meal-type');
+  if (typeInput) typeInput.value = mealType;
+
+  const searchInput = document.getElementById('meal-recipe-search');
+  if (searchInput) searchInput.value = '';
+
+  renderMealPickerList(recipesList);
+  backdrop.style.display = 'flex';
+  if (searchInput) searchInput.focus();
+}
+
+function renderMealPickerList(recipesList) {
+  const container = document.getElementById('meal-picker-list');
+  if (!container) return;
+
+  if (!recipesList || recipesList.length === 0) {
+    container.innerHTML = `
+      <div class="empty-state" style="padding: 2rem 1rem;">
+        <p style="margin-bottom: 0.85rem;">No recipes available to assign.</p>
+        <button type="button" class="btn-add" onclick="closeMealModal(); navigateTo('recipes'); openModal();">
+          Create New Recipe
+        </button>
+      </div>
+    `;
+    return;
+  }
+
+  container.innerHTML = recipesList.map(r => {
+    const ingCount = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
+    const metaText = ingCount > 0 ? `${ingCount} ingredient${ingCount === 1 ? '' : 's'}` : 'No ingredients listed';
+
+    return `
+      <div class="meal-picker-item" onclick="selectRecipeForMeal(${r.id})">
+        <div class="meal-picker-item-info">
+          <div class="meal-picker-item-name">${escapeHTML(r.name)}</div>
+          <div class="meal-picker-item-meta">${escapeHTML(metaText)}</div>
+        </div>
+        <button type="button" class="btn-add btn-select-meal" onclick="event.stopPropagation(); selectRecipeForMeal(${r.id})">
+          Select
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+function closeMealModal() {
+  const backdrop = document.getElementById('meal-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+  const typeInput = document.getElementById('selected-meal-type');
+  if (typeInput) typeInput.value = '';
+}
+
+function backdropMealClick(e) {
+  if (e.target === e.currentTarget) closeMealModal();
 }
 
 // ── Add/Edit modal ───────────────────────────────────────────────
@@ -101,7 +192,8 @@ function openEditModal(id) {
 }
 
 function closeModal() {
-  document.getElementById('modal-backdrop').style.display = 'none';
+  const backdrop = document.getElementById('modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
   document.getElementById('modal-edit-id').value = '';
   document.getElementById('f-name').value         = '';
   document.getElementById('f-ingredients').value  = '';
@@ -114,7 +206,16 @@ function backdropClick(e) {
 
 // ── Detail modal ─────────────────────────────────────────────────
 function openDetailModal(id) {
-  const r = recipes.find(x => x.id === Number(id));
+  let r = recipes.find(x => x.id === Number(id));
+  if (!r) {
+    // Check in today's assigned meals
+    for (const type of ['breakfast', 'lunch', 'dinner']) {
+      if (calendarMeals[type] && calendarMeals[type].recipe && calendarMeals[type].recipe.id === Number(id)) {
+        r = calendarMeals[type].recipe;
+        break;
+      }
+    }
+  }
   if (!r) return;
 
   document.getElementById('d-name').textContent = r.name;
@@ -155,6 +256,7 @@ function backdropDetailClick(e) {
 let toastTimer;
 function showToast(msg) {
   const t = document.getElementById('toast');
+  if (!t) return;
   t.textContent = msg;
   t.classList.add('show');
   clearTimeout(toastTimer);
@@ -162,10 +264,9 @@ function showToast(msg) {
 }
 
 function setActiveView(view) {
-  document.getElementById('recipes-view').style.display = view === 'recipes' ? 'block' : 'none';
-  document.getElementById('calendar-view').style.display = view === 'calendar' ? 'block' : 'none';
-  document.getElementById('calendar-nav').classList.toggle('active', view === 'calendar');
-  document.getElementById('recipes-nav').classList.toggle('active', view === 'recipes');
+  if (typeof navigateTo === 'function') {
+    navigateTo(view);
+  }
 }
 
 function animateRecipeRemoval(id) {
