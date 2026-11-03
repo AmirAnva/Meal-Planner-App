@@ -179,8 +179,18 @@ func (r *SQLiteRepository) DeleteRecipe(id int) error {
 // SearchRecipes matches a case-insensitive keyword across the name,
 // ingredients, and instructions fields.
 func (r *SQLiteRepository) SearchRecipes(query string) ([]Recipe, error) {
-	pattern := "%" + strings.ToLower(strings.TrimSpace(query)) + "%"
-	rows, err := r.db.Query(`SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE lower(name || ' ' || ingredients || ' ' || instructions) LIKE ? ORDER BY recipe_id`, pattern)
+	keywords := strings.Fields(strings.ToLower(query))
+	if len(keywords) == 0 {
+		return []Recipe{}, nil
+	}
+	conditions := make([]string, len(keywords))
+	args := make([]any, len(keywords))
+	for i, keyword := range keywords {
+		conditions[i] = `lower(name || ' ' || ingredients || ' ' || instructions) LIKE ?`
+		args[i] = "%" + keyword + "%"
+	}
+	querySQL := `SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY recipe_id`
+	rows, err := r.db.Query(querySQL, args...)
 	if err != nil {
 		return nil, err
 	}

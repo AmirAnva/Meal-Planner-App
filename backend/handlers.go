@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"net/http"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -177,7 +178,7 @@ func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (api *API) searchRecipes(w http.ResponseWriter, r *http.Request) {
-	query := r.URL.Query().Get("q")
+	query := strings.Join(r.URL.Query()["q"], " ")
 	recipes, err := api.store.SearchRecipes(query)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "could not search recipes")
