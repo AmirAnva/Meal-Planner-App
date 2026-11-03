@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-func TestCreateRecipeInputCases(t *testing.T) {
+func TestRecipeAPICreateInputCases(t *testing.T) {
 	testCases := []struct {
 		name   string
 		recipe Recipe
