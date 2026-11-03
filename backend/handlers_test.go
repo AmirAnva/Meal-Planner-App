@@ -111,9 +111,14 @@ func TestRecipeAPISearch(t *testing.T) {
 	if response.Code != http.StatusCreated {
 		t.Fatalf("create recipe status = %d, want %d", response.Code, http.StatusCreated)
 	}
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Onion Salad","ingredients":["onion"]}`)))
+	if response.Code != http.StatusCreated {
+		t.Fatalf("create second recipe status = %d, want %d", response.Code, http.StatusCreated)
+	}
 
 	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/recipes/search?q=TOMATO", nil))
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/recipes/search?q=TOMATO&q=onion", nil))
 	if response.Code != http.StatusOK {
 		t.Fatalf("search status = %d, want %d", response.Code, http.StatusOK)
 	}
@@ -121,7 +126,7 @@ func TestRecipeAPISearch(t *testing.T) {
 	if err := json.Unmarshal(response.Body.Bytes(), &recipes); err != nil {
 		t.Fatalf("decode search results: %v", err)
 	}
-	if len(recipes) != 1 || recipes[0].Name != "Tomato Soup" {
-		t.Fatalf("search results = %+v, want Tomato Soup", recipes)
+	if len(recipes) != 2 || recipes[0].Name != "Tomato Soup" || recipes[1].Name != "Onion Salad" {
+		t.Fatalf("search results = %+v, want Tomato Soup and Onion Salad", recipes)
 	}
 }
