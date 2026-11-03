@@ -2,6 +2,7 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -9,7 +10,7 @@ import (
 	"testing"
 )
 
-func createCalendarRecipe(t *testing.T, handler http.Handler, name string) Recipe {
+func createCurrentCalendarRecipe(t *testing.T, handler http.Handler, name string) Recipe {
 	t.Helper()
 
 	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"`+name+`"}`))
@@ -26,9 +27,27 @@ func createCalendarRecipe(t *testing.T, handler http.Handler, name string) Recip
 	return recipe
 }
 
-func TestCalendarAPIGetRangeAndAssignMeal(t *testing.T) {
+func TestCurrentGetCalendarDoesNotCreateDays(t *testing.T) {
+	handler, databasePath := newTestAPI(t)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/calendar?start=2026-10-29&days=2", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET calendar status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	store, err := OpenSQLiteRepository(databasePath)
+	if err != nil {
+		t.Fatalf("open calendar database: %v", err)
+	}
+	defer store.Close()
+	if _, err := store.GetDay("2026-10-29"); !errors.Is(err, ErrDayNotFound) {
+		t.Fatalf("GET calendar created a day, GetDay error = %v", err)
+	}
+}
+
+func TestCurrentCalendarAPIGetRangeAndAssignMeal(t *testing.T) {
 	handler, _ := newTestAPI(t)
-	recipe := createCalendarRecipe(t, handler, "Pancakes")
+	recipe := createCurrentCalendarRecipe(t, handler, "Pancakes")
 
 	request := httptest.NewRequest(http.MethodGet, "/api/calendar?start=2026-10-29&days=3", nil)
 	response := httptest.NewRecorder()
@@ -79,10 +98,10 @@ func TestCalendarAPIGetRangeAndAssignMeal(t *testing.T) {
 	}
 }
 
-func TestCalendarAPIAssignmentReplacesAndRemovesMeal(t *testing.T) {
+func TestCurrentCalendarAPIAssignmentReplacesAndRemovesMeal(t *testing.T) {
 	handler, _ := newTestAPI(t)
-	first := createCalendarRecipe(t, handler, "Pancakes")
-	second := createCalendarRecipe(t, handler, "Waffles")
+	first := createCurrentCalendarRecipe(t, handler, "Pancakes")
+	second := createCurrentCalendarRecipe(t, handler, "Waffles")
 
 	assign := func(recipeID int) {
 		t.Helper()
@@ -132,7 +151,7 @@ func TestCalendarAPIAssignmentReplacesAndRemovesMeal(t *testing.T) {
 	}
 }
 
-func TestCalendarAPIRejectsInvalidRequests(t *testing.T) {
+func TestCurrentCalendarAPIRejectsInvalidRequests(t *testing.T) {
 	handler, _ := newTestAPI(t)
 	tests := []struct {
 		name   string
@@ -159,5 +178,93 @@ func TestCalendarAPIRejectsInvalidRequests(t *testing.T) {
 				t.Fatalf("%s status = %d, want %d: %s", test.name, response.Code, test.want, response.Body.String())
 			}
 		})
+	}
+}
+
+func TestCurrentCalendarAPIDefaultAndMaximumRanges(t *testing.T) {
+	handler, _ := newTestAPI(t)
+
+	for _, test := range []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "default range", path: "/api/calendar", want: 7},
+		{name: "maximum range", path: "/api/calendar?start=2026-12-01&days=31", want: 31},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if response.Code != http.StatusOK {
+				t.Fatalf("GET calendar status = %d, want %d", response.Code, http.StatusOK)
+			}
+
+			var result calendar
+			if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+				t.Fatalf("decode calendar: %v", err)
+			}
+			if len(result.Days) != test.want {
+				t.Fatalf("calendar days = %d, want %d", len(result.Days), test.want)
+			}
+		})
+	}
+}
+
+func TestCurrentCalendarAPISupportsEveryMealType(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	recipe := createCurrentCalendarRecipe(t, handler, "Meal Prep")
+
+	for _, mealType := range []MealType{Breakfast, Lunch, Dinner} {
+		body := `{"date":"2026-11-02","recipe_id":` + strconv.Itoa(recipe.ID) + `,"meal_type":"` + string(mealType) + `"}`
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/calendar/meals", strings.NewReader(body)))
+		if response.Code != http.StatusOK {
+			t.Fatalf("assign %s status = %d, want %d: %s", mealType, response.Code, http.StatusOK, response.Body.String())
+		}
+	}
+
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/calendar?start=2026-11-02&days=1", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("GET calendar status = %d, want %d", response.Code, http.StatusOK)
+	}
+	var result calendar
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatalf("decode calendar: %v", err)
+	}
+	if len(result.Days) != 1 || len(result.Days[0].Meals) != 3 {
+		t.Fatalf("calendar meals = %+v, want three meal types", result.Days)
+	}
+}
+
+func TestCurrentCalendarAPIRemovingMissingMealReturnsNotFound(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	recipe := createCurrentCalendarRecipe(t, handler, "Breakfast")
+
+	body := `{"date":"2026-11-03","recipe_id":` + strconv.Itoa(recipe.ID) + `,"meal_type":"breakfast"}`
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/calendar/meals", strings.NewReader(body)))
+	if response.Code != http.StatusOK {
+		t.Fatalf("assign meal status = %d, want %d", response.Code, http.StatusOK)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodDelete, "/api/calendar/meals?date=2026-11-03&meal_type=lunch", nil))
+	if response.Code != http.StatusNotFound {
+		t.Fatalf("remove missing meal status = %d, want %d", response.Code, http.StatusNotFound)
+	}
+}
+
+func TestCurrentCalendarAPIRejectsMalformedAndUnknownMealJSON(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	for _, body := range []string{
+		`{"date":"2026-11-04","recipe_id":1`,
+		`{"date":"2026-11-04","recipe_id":1,"meal_type":"dinner","extra":true}`,
+	} {
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/calendar/meals", strings.NewReader(body)))
+		if response.Code != http.StatusBadRequest {
+			t.Fatalf("meal body %q status = %d, want %d", body, response.Code, http.StatusBadRequest)
+		}
 	}
 }
