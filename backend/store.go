@@ -58,7 +58,8 @@ CREATE TABLE IF NOT EXISTS recipes (
   recipe_id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   ingredients TEXT NOT NULL DEFAULT '[]',
-  instructions TEXT NOT NULL DEFAULT '[]'
+  instructions TEXT NOT NULL DEFAULT '[]',
+  tags TEXT NOT NULL DEFAULT '[]'
 );
 CREATE TABLE IF NOT EXISTS days (
   day_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -71,6 +72,17 @@ CREATE TABLE IF NOT EXISTS meals (
   meal_type TEXT NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner')),
   UNIQUE(day_id, meal_type)
 );`)
+	if err != nil {
+		return err
+	}
+	var tagsColumn int
+	err = db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('recipes') WHERE name = 'tags'`).Scan(&tagsColumn)
+	if err != nil {
+		return err
+	}
+	if tagsColumn == 0 {
+		_, err = db.Exec(`ALTER TABLE recipes ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'`)
+	}
 	return err
 }
 
@@ -86,6 +98,7 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if recipe.Instructions == nil {
 		recipe.Instructions = []string{}
 	}
+	recipe.Tags = normalizeTags(recipe.Tags)
 	ingredients, err := json.Marshal(recipe.Ingredients)
 	if err != nil {
 		return Recipe{}, err
@@ -94,7 +107,11 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
+	tags, err := json.Marshal(recipe.Tags)
+	if err != nil {
+		return Recipe{}, err
+	}
+	result, err := r.db.Exec(`INSERT INTO recipes(name, ingredients, instructions, tags) VALUES (?, ?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), string(tags))
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -104,7 +121,7 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 }
 
 func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
-	rows, err := r.db.Query(`SELECT recipe_id, name, ingredients, instructions FROM recipes ORDER BY recipe_id`)
+	rows, err := r.db.Query(`SELECT recipe_id, name, ingredients, instructions, tags FROM recipes ORDER BY recipe_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -121,7 +138,7 @@ func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
 }
 
 func (r *SQLiteRepository) GetRecipe(id int) (Recipe, error) {
-	recipe, err := scanRecipe(r.db.QueryRow(`SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE recipe_id = ?`, id))
+	recipe, err := scanRecipe(r.db.QueryRow(`SELECT recipe_id, name, ingredients, instructions, tags FROM recipes WHERE recipe_id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Recipe{}, ErrRecipeNotFound
 	}
@@ -138,6 +155,7 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if recipe.Instructions == nil {
 		recipe.Instructions = []string{}
 	}
+	recipe.Tags = normalizeTags(recipe.Tags)
 	ingredients, err := json.Marshal(recipe.Ingredients)
 	if err != nil {
 		return Recipe{}, err
@@ -146,7 +164,11 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
+	tags, err := json.Marshal(recipe.Tags)
+	if err != nil {
+		return Recipe{}, err
+	}
+	result, err := r.db.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=?, tags=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), string(tags), recipe.ID)
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -176,8 +198,8 @@ func (r *SQLiteRepository) DeleteRecipe(id int) error {
 	return nil
 }
 
-// SearchRecipes matches a case-insensitive keyword across the name,
-// ingredients, and instructions fields.
+// SearchRecipes matches case-insensitive keywords across recipe names,
+// ingredients, and tags.
 func (r *SQLiteRepository) SearchRecipes(query string) ([]Recipe, error) {
 	keywords := strings.Fields(strings.ToLower(query))
 	if len(keywords) == 0 {
@@ -186,10 +208,10 @@ func (r *SQLiteRepository) SearchRecipes(query string) ([]Recipe, error) {
 	conditions := make([]string, len(keywords))
 	args := make([]any, len(keywords))
 	for i, keyword := range keywords {
-		conditions[i] = `lower(name || ' ' || ingredients || ' ' || instructions) LIKE ?`
+		conditions[i] = `lower(name || ' ' || ingredients || ' ' || tags) LIKE ?`
 		args[i] = "%" + keyword + "%"
 	}
-	querySQL := `SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY recipe_id`
+	querySQL := `SELECT recipe_id, name, ingredients, instructions, tags FROM recipes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY recipe_id`
 	rows, err := r.db.Query(querySQL, args...)
 	if err != nil {
 		return nil, err
@@ -305,8 +327,8 @@ type scanner interface{ Scan(...any) error }
 
 func scanRecipe(row scanner) (Recipe, error) {
 	var recipe Recipe
-	var ingredients, instructions string
-	if err := row.Scan(&recipe.ID, &recipe.Name, &ingredients, &instructions); err != nil {
+	var ingredients, instructions, tags string
+	if err := row.Scan(&recipe.ID, &recipe.Name, &ingredients, &instructions, &tags); err != nil {
 		return Recipe{}, err
 	}
 	if err := json.Unmarshal([]byte(ingredients), &recipe.Ingredients); err != nil {
@@ -315,5 +337,26 @@ func scanRecipe(row scanner) (Recipe, error) {
 	if err := json.Unmarshal([]byte(instructions), &recipe.Instructions); err != nil {
 		return Recipe{}, fmt.Errorf("decode instructions: %w", err)
 	}
+	if err := json.Unmarshal([]byte(tags), &recipe.Tags); err != nil {
+		return Recipe{}, fmt.Errorf("decode tags: %w", err)
+	}
 	return recipe, nil
+}
+
+func normalizeTags(tags []string) []string {
+	result := make([]string, 0, len(tags))
+	seen := make(map[string]struct{}, len(tags))
+	for _, tag := range tags {
+		tag = strings.TrimSpace(tag)
+		if tag == "" {
+			continue
+		}
+		key := strings.ToLower(tag)
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		result = append(result, tag)
+	}
+	return result
 }
