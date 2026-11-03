@@ -44,9 +44,10 @@ go test ./...
 | Method | Endpoint | Description |
 |---|---|---|
 | GET | `/api/recipes` | List all recipes |
-| POST | `/api/recipes` | Create a recipe |
+| POST | `/api/recipes` | Create a recipe (`name`, `ingredients`, `instructions`, and `tags`) |
 | PUT | `/api/recipes/{id}` | Update a recipe |
 | DELETE | `/api/recipes/{id}` | Delete a recipe |
+| GET | `/api/recipes/search?q=vegetarian` | Search recipe names, ingredients, or tags |
 | GET | `/api/calendar?start=YYYY-MM-DD&days=7` | Get calendar days and assigned meals |
 | POST | `/api/calendar/meals` | Assign or replace a meal (`date`, `meal_type`, `recipe_id`) |
 | DELETE | `/api/calendar/meals?date=YYYY-MM-DD&meal_type=breakfast` | Remove a meal assignment |

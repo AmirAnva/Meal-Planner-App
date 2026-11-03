@@ -14,8 +14,11 @@ type Recipe struct {
 	Name         string   `json:"name"`
 	Ingredients  []string `json:"ingredients"`
 	Instructions []string `json:"instructions"`
+	Tags         []string `json:"tags"`
 }
 
+// Validate checks that the recipe has a non-empty name. Additional validation
+// rules can be added here as needed.
 func (r Recipe) Validate() error {
 	if strings.TrimSpace(r.Name) == "" {
 		return ErrRecipeNameRequired
@@ -30,6 +33,8 @@ type Day struct {
 	Meals []Meal `json:"meals,omitempty"`
 }
 
+// Validate checks that the day has a non-empty date. Additional validation
+// rules can be added here as needed.
 func (d Day) Validate() error {
 	if strings.TrimSpace(d.Date) == "" {
 		return errors.New("day date is required")

@@ -31,7 +31,7 @@ func TestRecipeValidation(t *testing.T) {
 
 func TestRecipeStorageLifecycleAndSearch(t *testing.T) {
 	repository := newTestRepository(t)
-	want := Recipe{Name: "Garden Soup", Ingredients: []string{"carrot", "beans"}, Instructions: []string{"Simmer with thyme"}}
+	want := Recipe{Name: "Garden Soup", Ingredients: []string{"carrot", "beans"}, Instructions: []string{"Simmer with thyme"}, Tags: []string{"Vegetarian", "weeknight"}}
 	created, err := repository.CreateRecipe(want)
 	if err != nil {
 		t.Fatalf("CreateRecipe(): %v", err)
@@ -40,7 +40,7 @@ func TestRecipeStorageLifecycleAndSearch(t *testing.T) {
 		t.Fatalf("created ID = %d, want positive ID", created.ID)
 	}
 
-	for _, term := range []string{"garden", "carrot", "thyme"} {
+	for _, term := range []string{"garden", "carrot", "vegetarian", "WEEKNIGHT"} {
 		got, err := repository.SearchRecipes(term)
 		if err != nil {
 			t.Fatalf("SearchRecipes(%q): %v", term, err)
@@ -48,6 +48,11 @@ func TestRecipeStorageLifecycleAndSearch(t *testing.T) {
 		if len(got) != 1 || got[0].ID != created.ID {
 			t.Errorf("SearchRecipes(%q) = %+v, want created recipe", term, got)
 		}
+	}
+	if got, err := repository.SearchRecipes("thyme"); err != nil {
+		t.Fatalf("SearchRecipes() instruction-only query: %v", err)
+	} else if len(got) != 0 {
+		t.Fatalf("SearchRecipes() instruction-only query = %+v, want no results", got)
 	}
 	got, err := repository.GetRecipe(created.ID)
 	if err != nil {
@@ -59,11 +64,12 @@ func TestRecipeStorageLifecycleAndSearch(t *testing.T) {
 
 	created.Name = "Roasted Garden Soup"
 	created.Instructions = []string{"Roast", "Simmer"}
+	created.Tags = []string{"roasted", "weeknight"}
 	updated, err := repository.UpdateRecipe(created)
 	if err != nil {
 		t.Fatalf("UpdateRecipe(): %v", err)
 	}
-	if updated.Name != created.Name || len(updated.Instructions) != 2 {
+	if updated.Name != created.Name || len(updated.Instructions) != 2 || len(updated.Tags) != 2 {
 		t.Fatalf("UpdateRecipe() = %+v", updated)
 	}
 	list, err := repository.ListRecipes()
