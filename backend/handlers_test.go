@@ -5,6 +5,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -105,7 +106,7 @@ func TestRecipeAPIDeleteMissingRecipe(t *testing.T) {
 
 func TestRecipeAPISearch(t *testing.T) {
 	handler, _ := newTestAPI(t)
-	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Tomato Soup","ingredients":["tomato"]}`))
+	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Tomato Soup","ingredients":["tomato"],"tags":["quick","Soup"]}`))
 	response := httptest.NewRecorder()
 	handler.ServeHTTP(response, request)
 	if response.Code != http.StatusCreated {
@@ -128,5 +129,129 @@ func TestRecipeAPISearch(t *testing.T) {
 	}
 	if len(recipes) != 2 || recipes[0].Name != "Tomato Soup" || recipes[1].Name != "Onion Salad" {
 		t.Fatalf("search results = %+v, want Tomato Soup and Onion Salad", recipes)
+	}
+
+	response = httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/recipes/search?q=quick", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("tag search status = %d, want %d", response.Code, http.StatusOK)
+	}
+	recipes = nil
+	if err := json.Unmarshal(response.Body.Bytes(), &recipes); err != nil {
+		t.Fatalf("decode tag search results: %v", err)
+	}
+	if len(recipes) != 1 || recipes[0].Name != "Tomato Soup" {
+		t.Fatalf("tag search results = %+v, want Tomato Soup", recipes)
+	}
+}
+
+func TestRecipeAPIUpdate(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	create := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Egg Bowl","ingredients":["eggs"]}`))
+	createdResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createdResponse, create)
+	if createdResponse.Code != http.StatusCreated {
+		t.Fatalf("create status = %d, want %d", createdResponse.Code, http.StatusCreated)
+	}
+
+	var created Recipe
+	if err := json.Unmarshal(createdResponse.Body.Bytes(), &created); err != nil {
+		t.Fatalf("decode created recipe: %v", err)
+	}
+	update := httptest.NewRequest(http.MethodPut, "/api/recipes/"+strconv.Itoa(created.ID),
+		strings.NewReader(`{"name":"Updated Egg Bowl","ingredients":["eggs","rice"],"tags":["breakfast"]}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, update)
+	if response.Code != http.StatusOK {
+		t.Fatalf("update status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
+	}
+
+	var updated Recipe
+	if err := json.Unmarshal(response.Body.Bytes(), &updated); err != nil {
+		t.Fatalf("decode updated recipe: %v", err)
+	}
+	if updated.ID != created.ID || updated.Name != "Updated Egg Bowl" || len(updated.Ingredients) != 2 || len(updated.Tags) != 1 {
+		t.Fatalf("updated recipe = %+v", updated)
+	}
+}
+
+func TestRecipeAPIRejectsInvalidUpdateRequests(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	tests := []struct {
+		name string
+		path string
+		body string
+		want int
+	}{
+		{"invalid ID", "/api/recipes/not-an-id", `{"name":"Soup"}`, http.StatusBadRequest},
+		{"missing recipe", "/api/recipes/99", `{"name":"Soup"}`, http.StatusNotFound},
+		{"invalid JSON", "/api/recipes/1", `{"name":`, http.StatusBadRequest},
+		{"unknown field", "/api/recipes/1", `{"name":"Soup","unknown":true}`, http.StatusBadRequest},
+		{"empty name", "/api/recipes/1", `{"name":" "}`, http.StatusBadRequest},
+	}
+
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			request := httptest.NewRequest(http.MethodPut, test.path, strings.NewReader(test.body))
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if response.Code != test.want {
+				t.Fatalf("update status = %d, want %d: %s", response.Code, test.want, response.Body.String())
+			}
+		})
+	}
+}
+
+func TestRecipeAPIRejectsUnknownCreateFields(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Soup","unknown":true}`))
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if response.Code != http.StatusBadRequest {
+		t.Fatalf("create status = %d, want %d", response.Code, http.StatusBadRequest)
+	}
+}
+
+func TestAPIOptionsReturnsCORSHeaders(t *testing.T) {
+	handler, _ := newTestAPI(t)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, httptest.NewRequest(http.MethodOptions, "/api/recipes", nil))
+	if response.Code != http.StatusNoContent {
+		t.Fatalf("OPTIONS status = %d, want %d", response.Code, http.StatusNoContent)
+	}
+	if response.Header().Get("Access-Control-Allow-Origin") != "*" {
+		t.Fatalf("CORS origin = %q, want *", response.Header().Get("Access-Control-Allow-Origin"))
+	}
+	if response.Header().Get("Access-Control-Allow-Methods") == "" || response.Header().Get("Access-Control-Allow-Headers") == "" {
+		t.Fatal("OPTIONS response missing CORS method or header declarations")
+	}
+}
+
+func TestAPIStorageErrorsReturnInternalServerError(t *testing.T) {
+	store, err := OpenSQLiteRepository(":memory:")
+	if err != nil {
+		t.Fatalf("open repository: %v", err)
+	}
+	if err := store.Close(); err != nil {
+		t.Fatalf("close repository: %v", err)
+	}
+	handler := NewAPI(store)
+
+	tests := []struct {
+		name string
+		path string
+	}{
+		{"list", "/api/recipes"},
+		{"search", "/api/recipes/search?q=soup"},
+		{"calendar", "/api/calendar?start=2026-11-01&days=1"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if response.Code != http.StatusInternalServerError {
+				t.Fatalf("%s status = %d, want %d", test.name, response.Code, http.StatusInternalServerError)
+			}
+		})
 	}
 }
