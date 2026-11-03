@@ -11,10 +11,27 @@ import (
 )
 
 type API struct {
-	store *SQLiteRepository
+	store RecipeStore
 }
 
-func NewAPI(store *SQLiteRepository) http.Handler {
+// RecipeStore defines the interface for the data persistence layer. The API
+// handlers depend on this interface, allowing for different implementations
+// (e.g., SQLite, in-memory) to be swapped in without changing the API logic.
+type RecipeStore interface {
+	ListRecipes() ([]Recipe, error)
+	SearchRecipes(string) ([]Recipe, error)
+	CreateRecipe(Recipe) (Recipe, error)
+	UpdateRecipe(Recipe) (Recipe, error)
+	DeleteRecipe(int) error
+	GetDay(string) (Day, error)
+	GetOrCreateDay(string) (Day, error)
+	ListMeals(int) ([]Meal, error)
+	AssignMeal(int, int, MealType) (Meal, error)
+	RemoveMeal(int, MealType) error
+}
+
+// calendar is the response format for the /api/calendar endpoint.
+func NewAPI(store RecipeStore) http.Handler {
 	api := &API{store: store}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
@@ -238,6 +255,7 @@ func writeError(w http.ResponseWriter, status int, message string) {
 	writeJSON(w, status, map[string]string{"error": message})
 }
 
+// cors is a middleware that adds CORS headers to the response, allowing cross-origin requests.
 func cors(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
