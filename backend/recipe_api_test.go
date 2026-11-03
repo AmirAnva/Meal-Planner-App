@@ -86,7 +86,7 @@ func TestRecipeAPICreateInputCases(t *testing.T) {
 	}
 }
 
-func TestRecipeAPIRejectsEmptyName(t *testing.T) {
+func TestRecipeAPIRejectsEmptyNameFromAPI(t *testing.T) {
 	handler, _ := newTestAPI(t)
 	request := httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"","ingredients":[],"instructions":[]}`))
 	request.Header.Set("Content-Type", "application/json")
@@ -98,7 +98,7 @@ func TestRecipeAPIRejectsEmptyName(t *testing.T) {
 	}
 }
 
-func TestRecipeAPIValidationErrors(t *testing.T) {
+func TestRecipeAPIValidationErrorsFromAPI(t *testing.T) {
 	handler, _ := newTestAPI(t)
 	testCases := []struct {
 		name        string
