@@ -1,127 +1,153 @@
 package main
 
-// Valerie Pompa: exercises SQLite persistence in place of the former JSON
-// recipe book round-trip test.
-
 import (
 	"errors"
-	"path/filepath"
-	"reflect"
 	"testing"
 )
 
-func newTestRepository(t *testing.T) *SQLiteRepository {
-	t.Helper()
-	repository, err := OpenSQLiteRepository(filepath.Join(t.TempDir(), "meal-planner.db"))
-	if err != nil {
-		t.Fatalf("open SQLite repository: %v", err)
-	}
-	t.Cleanup(func() { _ = repository.Close() })
-	return repository
-}
-
-func TestRecipeValidation(t *testing.T) {
-	if err := (Recipe{Name: " \t "}).Validate(); !errors.Is(err, ErrRecipeNameRequired) {
-		t.Fatalf("Validate() error = %v, want required name", err)
-	}
-	if err := (Recipe{Name: "Soup"}).Validate(); err != nil {
-		t.Fatalf("Validate() error = %v", err)
+func TestOpenSQLiteRepositoryRejectsEmptyPath(t *testing.T) {
+	if _, err := OpenSQLiteRepository(""); err == nil {
+		t.Fatal("OpenSQLiteRepository(\"\") succeeded, want an error")
 	}
 }
 
-func TestRecipeStorageLifecycleAndSearch(t *testing.T) {
+func TestRecipeRepositoryNormalizesDefaultsAndName(t *testing.T) {
 	repository := newTestRepository(t)
-	want := Recipe{Name: "Garden Soup", Ingredients: []string{"carrot", "beans"}, Instructions: []string{"Simmer with thyme"}}
-	created, err := repository.CreateRecipe(want)
+	created, err := repository.CreateRecipe(Recipe{Name: "  Egg Bowl  "})
 	if err != nil {
 		t.Fatalf("CreateRecipe(): %v", err)
 	}
-	if created.ID < 1 {
-		t.Fatalf("created ID = %d, want positive ID", created.ID)
+	if created.Name != "  Egg Bowl  " {
+		t.Fatalf("created name = %q, want input preserved in returned value", created.Name)
+	}
+	if created.Ingredients == nil || created.Instructions == nil || created.Tags == nil {
+		t.Fatalf("created defaults = %+v, want non-nil slices", created)
 	}
 
-	for _, term := range []string{"garden", "carrot", "thyme"} {
-		got, err := repository.SearchRecipes(term)
-		if err != nil {
-			t.Fatalf("SearchRecipes(%q): %v", term, err)
-		}
-		if len(got) != 1 || got[0].ID != created.ID {
-			t.Errorf("SearchRecipes(%q) = %+v, want created recipe", term, got)
-		}
-	}
-	got, err := repository.GetRecipe(created.ID)
+	stored, err := repository.GetRecipe(created.ID)
 	if err != nil {
 		t.Fatalf("GetRecipe(): %v", err)
 	}
-	if !reflect.DeepEqual(got, created) {
-		t.Fatalf("GetRecipe() = %+v, want %+v", got, created)
+	if stored.Name != "Egg Bowl" {
+		t.Fatalf("stored name = %q, want trimmed name", stored.Name)
 	}
-
-	created.Name = "Roasted Garden Soup"
-	created.Instructions = []string{"Roast", "Simmer"}
-	updated, err := repository.UpdateRecipe(created)
-	if err != nil {
-		t.Fatalf("UpdateRecipe(): %v", err)
-	}
-	if updated.Name != created.Name || len(updated.Instructions) != 2 {
-		t.Fatalf("UpdateRecipe() = %+v", updated)
-	}
-	list, err := repository.ListRecipes()
-	if err != nil || len(list) != 1 {
-		t.Fatalf("ListRecipes() = %v, %v; want one recipe", list, err)
-	}
-	if err := repository.DeleteRecipe(created.ID); err != nil {
-		t.Fatalf("DeleteRecipe(): %v", err)
-	}
-	if _, err := repository.GetRecipe(created.ID); !errors.Is(err, ErrRecipeNotFound) {
-		t.Fatalf("GetRecipe after delete error = %v", err)
+	if len(stored.Ingredients) != 0 || len(stored.Instructions) != 0 || len(stored.Tags) != 0 {
+		t.Fatalf("stored defaults = %+v, want empty slices", stored)
 	}
 }
 
-func TestDayMealAssignmentAndForeignKeys(t *testing.T) {
+func TestRecipeRepositoryEmptySearchReturnsEmptySlice(t *testing.T) {
 	repository := newTestRepository(t)
-	recipe, err := repository.CreateRecipe(Recipe{Name: "Pancakes", Ingredients: []string{"flour"}, Instructions: []string{"Mix"}})
-	if err != nil {
-		t.Fatal(err)
+	for _, query := range []string{"", "   "} {
+		results, err := repository.SearchRecipes(query)
+		if err != nil {
+			t.Fatalf("SearchRecipes(%q): %v", query, err)
+		}
+		if results == nil || len(results) != 0 {
+			t.Fatalf("SearchRecipes(%q) = %v, want non-nil empty slice", query, results)
+		}
 	}
-	day, err := repository.GetOrCreateDay("2026-10-29")
+}
+
+func TestRecipeRepositoryDoesNotReturnMisspelledSearchMatches(t *testing.T) {
+	repository := newTestRepository(t)
+	exact, err := repository.CreateRecipe(Recipe{Name: "French Toast"})
+	if err != nil {
+		t.Fatalf("CreateRecipe(exact): %v", err)
+	}
+	misspelled, err := repository.CreateRecipe(Recipe{Name: "Taost"})
+	if err != nil {
+		t.Fatalf("CreateRecipe(misspelled): %v", err)
+	}
+
+	results, err := repository.SearchRecipes("toast")
+	if err != nil {
+		t.Fatalf("SearchRecipes(): %v", err)
+	}
+	if len(results) != 1 || results[0].ID != exact.ID {
+		t.Fatalf("SearchRecipes(toast) = %+v, want only recipe %d; excluded recipe = %d", results, exact.ID, misspelled.ID)
+	}
+}
+
+func TestDayRepositoryLookupAndValidation(t *testing.T) {
+	repository := newTestRepository(t)
+	if _, err := repository.GetOrCreateDay(""); err == nil {
+		t.Fatal("GetOrCreateDay(\"\") succeeded, want validation error")
+	}
+	if _, err := repository.GetDay("2026-11-03"); !errors.Is(err, ErrDayNotFound) {
+		t.Fatalf("GetDay() error = %v, want ErrDayNotFound", err)
+	}
+
+	created, err := repository.GetOrCreateDay("2026-11-03")
 	if err != nil {
 		t.Fatalf("GetOrCreateDay(): %v", err)
 	}
-	dayAgain, err := repository.GetOrCreateDay("2026-10-29")
-	if err != nil || dayAgain.ID != day.ID {
-		t.Fatalf("duplicate day lookup = %+v, %v", dayAgain, err)
+	found, err := repository.GetDay(created.Date)
+	if err != nil {
+		t.Fatalf("GetDay() after create: %v", err)
+	}
+	if found.ID != created.ID || found.Date != created.Date {
+		t.Fatalf("found day = %+v, want %+v", found, created)
+	}
+}
+
+func TestMealRepositoryListsInMealOrderAndMissingErrors(t *testing.T) {
+	repository := newTestRepository(t)
+	recipes := make([]Recipe, 3)
+	for i, name := range []string{"Breakfast", "Lunch", "Dinner"} {
+		var err error
+		recipes[i], err = repository.CreateRecipe(Recipe{Name: name})
+		if err != nil {
+			t.Fatalf("CreateRecipe(%q): %v", name, err)
+		}
+	}
+	day, err := repository.GetOrCreateDay("2026-11-04")
+	if err != nil {
+		t.Fatalf("GetOrCreateDay(): %v", err)
 	}
 
-	meal, err := repository.AssignMeal(day.ID, recipe.ID, Breakfast)
-	if err != nil {
-		t.Fatalf("AssignMeal(): %v", err)
+	if _, err := repository.GetMeal(day.ID, Breakfast); !errors.Is(err, ErrMealNotFound) {
+		t.Fatalf("GetMeal() missing error = %v, want ErrMealNotFound", err)
 	}
-	if meal.Recipe.Name != "Pancakes" {
-		t.Fatalf("meal recipe = %+v", meal.Recipe)
+	if err := repository.RemoveMeal(day.ID, Dinner); !errors.Is(err, ErrMealNotFound) {
+		t.Fatalf("RemoveMeal() missing error = %v, want ErrMealNotFound", err)
 	}
-	secondRecipe, err := repository.CreateRecipe(Recipe{Name: "Waffles"})
-	if err != nil {
-		t.Fatal(err)
+
+	assignments := []struct {
+		mealType MealType
+		recipe   Recipe
+	}{
+		{Dinner, recipes[2]},
+		{Breakfast, recipes[0]},
+		{Lunch, recipes[1]},
 	}
-	meal, err = repository.AssignMeal(day.ID, secondRecipe.ID, Breakfast)
-	if err != nil || meal.RecipeID != secondRecipe.ID {
-		t.Fatalf("meal upsert = %+v, %v", meal, err)
+	for _, assignment := range assignments {
+		if _, err := repository.AssignMeal(day.ID, assignment.recipe.ID, assignment.mealType); err != nil {
+			t.Fatalf("AssignMeal(%s): %v", assignment.mealType, err)
+		}
 	}
 	meals, err := repository.ListMeals(day.ID)
-	if err != nil || len(meals) != 1 || meals[0].Recipe.Name != "Waffles" {
-		t.Fatalf("ListMeals() = %+v, %v", meals, err)
+	if err != nil {
+		t.Fatalf("ListMeals(): %v", err)
 	}
-	if err := repository.RemoveMeal(day.ID, Breakfast); err != nil {
-		t.Fatalf("RemoveMeal(): %v", err)
+	if len(meals) != 3 {
+		t.Fatalf("ListMeals() returned %d meals, want 3", len(meals))
 	}
-	if _, err := repository.GetMeal(day.ID, Breakfast); !errors.Is(err, ErrMealNotFound) {
-		t.Fatalf("GetMeal after removal error = %v", err)
+	wantOrder := []MealType{Breakfast, Lunch, Dinner}
+	for i, meal := range meals {
+		if meal.MealType != wantOrder[i] || meal.Recipe.Name != stringMealName(wantOrder[i]) {
+			t.Fatalf("meal[%d] = %+v, want %s", i, meal, wantOrder[i])
+		}
 	}
-	if _, err := repository.AssignMeal(day.ID, 99999, Lunch); err == nil {
-		t.Fatal("AssignMeal with unknown recipe succeeded, want foreign key error")
-	}
-	if _, err := repository.AssignMeal(day.ID, recipe.ID, MealType("snack")); err == nil {
-		t.Fatal("AssignMeal with unsupported meal type succeeded")
+}
+
+func stringMealName(mealType MealType) string {
+	switch mealType {
+	case Breakfast:
+		return "Breakfast"
+	case Lunch:
+		return "Lunch"
+	default:
+		return "Dinner"
 	}
 }
