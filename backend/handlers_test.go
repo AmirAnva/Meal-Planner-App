@@ -235,3 +235,108 @@ func TestRecipeAPISearchEmptyAndCaseInsensitive(t *testing.T) {
 		})
 	}
 }
+
+// Amir Anvarkhujaev: exercises the recipe update endpoint (PUT /api/recipes/{id})
+// covering happy path, empty names, non-existent recipes, invalid IDs, and malformed JSON.
+func TestRecipeAPIUpdate(t *testing.T) {
+	handler, _ := newTestAPI(t)
+
+	// 1. Create a recipe to update
+	createReq := httptest.NewRequest(
+		http.MethodPost,
+		"/api/recipes",
+		strings.NewReader(`{"name":"Toast","ingredients":["bread"],"instructions":["toast it"]}`),
+	)
+	createReq.Header.Set("Content-Type", "application/json")
+	createRec := httptest.NewRecorder()
+	handler.ServeHTTP(createRec, createReq)
+	if createRec.Code != http.StatusCreated {
+		t.Fatalf("setup recipe failed: %d", createRec.Code)
+	}
+
+	testCases := []struct {
+		name       string
+		path       string
+		body       string
+		wantStatus int
+	}{
+		{
+			name:       "successful recipe update",
+			path:       "/api/recipes/1",
+			body:       `{"name":"Avocado Toast","ingredients":["bread","avocado"],"instructions":["toast","spread"]}`,
+			wantStatus: http.StatusOK,
+		},
+		{
+			name:       "reject empty recipe name",
+			path:       "/api/recipes/1",
+			body:       `{"name":""}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "reject whitespace-only recipe name",
+			path:       "/api/recipes/1",
+			body:       `{"name":"    "}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "update non-existent recipe returns 404",
+			path:       "/api/recipes/999",
+			body:       `{"name":"Ghost Recipe"}`,
+			wantStatus: http.StatusNotFound,
+		},
+		{
+			name:       "reject non-numeric recipe ID",
+			path:       "/api/recipes/not-a-number",
+			body:       `{"name":"Invalid ID"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "reject zero or negative recipe ID",
+			path:       "/api/recipes/0",
+			body:       `{"name":"Zero ID"}`,
+			wantStatus: http.StatusBadRequest,
+		},
+		{
+			name:       "reject malformed JSON payload",
+			path:       "/api/recipes/1",
+			body:       `{"name":"broken`,
+			wantStatus: http.StatusBadRequest,
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.name, func(t *testing.T) {
+			req := httptest.NewRequest(http.MethodPut, tc.path, strings.NewReader(tc.body))
+			req.Header.Set("Content-Type", "application/json")
+			rec := httptest.NewRecorder()
+			handler.ServeHTTP(rec, req)
+
+			if rec.Code != tc.wantStatus {
+				t.Errorf("%s: status = %d, want %d (body: %s)", tc.name, rec.Code, tc.wantStatus, rec.Body.String())
+			}
+
+			if tc.wantStatus == http.StatusOK {
+				var updated Recipe
+				if err := json.Unmarshal(rec.Body.Bytes(), &updated); err != nil {
+					t.Fatalf("failed to decode updated recipe: %v", err)
+				}
+				if updated.Name != "Avocado Toast" || len(updated.Ingredients) != 2 {
+					t.Errorf("unexpected updated recipe payload: %+v", updated)
+				}
+			}
+		})
+	}
+}
+
+// Amir Anvarkhujaev: checks that deleting a recipe with an invalid ID string returns 400 Bad Request.
+func TestRecipeAPIDeleteInvalidID(t *testing.T) {
+	handler, _ := newTestAPI(t)
+
+	req := httptest.NewRequest(http.MethodDelete, "/api/recipes/invalid-id", nil)
+	rec := httptest.NewRecorder()
+	handler.ServeHTTP(rec, req)
+
+	if rec.Code != http.StatusBadRequest {
+		t.Fatalf("DELETE invalid ID status = %d, want %d", rec.Code, http.StatusBadRequest)
+	}
+}
