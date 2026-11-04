@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
+	"reflect"
+	"strconv"
 	"strings"
 	"testing"
 )
@@ -128,6 +130,109 @@ func TestRecipeAPISearch(t *testing.T) {
 	}
 	if len(recipes) != 2 || recipes[0].Name != "Tomato Soup" || recipes[1].Name != "Onion Salad" {
 		t.Fatalf("search results = %+v, want Tomato Soup and Onion Salad", recipes)
+	}
+}
+
+// Chelsea Zhuang
+func TestRecipeAPIUpdatePersistsAllFields(t *testing.T) {
+	databasePath := filepath.Join(t.TempDir(), "recipes.db")
+	store, err := OpenSQLiteRepository(databasePath)
+	if err != nil {
+		t.Fatalf("open SQLite repository: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	handler := NewAPI(store)
+
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Old name","ingredients":["old ingredient"],"instructions":["old instruction"]}`)))
+	if createResponse.Code != http.StatusCreated {
+		_ = store.Close()
+		t.Fatalf("POST status = %d, want %d: %s", createResponse.Code, http.StatusCreated, createResponse.Body.String())
+	}
+	var created Recipe
+	if err := json.Unmarshal(createResponse.Body.Bytes(), &created); err != nil {
+		_ = store.Close()
+		t.Fatalf("decode created recipe: %v", err)
+	}
+
+	updateResponse := httptest.NewRecorder()
+	updateBody := `{"name":"New name","ingredients":["new ingredient","fresh herbs"],"instructions":["Updated first step","Updated second step"]}`
+	handler.ServeHTTP(updateResponse, httptest.NewRequest(http.MethodPut, "/api/recipes/"+strconv.Itoa(created.ID), strings.NewReader(updateBody)))
+	if updateResponse.Code != http.StatusOK {
+		_ = store.Close()
+		t.Fatalf("PUT status = %d, want %d: %s", updateResponse.Code, http.StatusOK, updateResponse.Body.String())
+	}
+
+	getResponse := httptest.NewRecorder()
+	handler.ServeHTTP(getResponse, httptest.NewRequest(http.MethodGet, "/api/recipes", nil))
+	if getResponse.Code != http.StatusOK {
+		_ = store.Close()
+		t.Fatalf("GET status = %d, want %d: %s", getResponse.Code, http.StatusOK, getResponse.Body.String())
+	}
+	var recipes []Recipe
+	if err := json.Unmarshal(getResponse.Body.Bytes(), &recipes); err != nil {
+		_ = store.Close()
+		t.Fatalf("decode recipes after PUT: %v", err)
+	}
+	want := Recipe{ID: created.ID, Name: "New name", Ingredients: []string{"new ingredient", "fresh herbs"}, Instructions: []string{"Updated first step", "Updated second step"}}
+	if len(recipes) != 1 || !reflect.DeepEqual(recipes[0], want) {
+		_ = store.Close()
+		t.Fatalf("GET after PUT = %+v, want [%+v]", recipes, want)
+	}
+
+	if err := store.Close(); err != nil {
+		t.Fatalf("close SQLite repository before reopening: %v", err)
+	}
+	reopened, err := OpenSQLiteRepository(databasePath)
+	if err != nil {
+		t.Fatalf("reopen SQLite repository: %v", err)
+	}
+	defer reopened.Close()
+	persisted, err := reopened.GetRecipe(created.ID)
+	if err != nil {
+		t.Fatalf("read updated recipe from reopened SQLite: %v", err)
+	}
+	if !reflect.DeepEqual(persisted, want) {
+		t.Fatalf("reopened SQLite recipe = %+v, want %+v", persisted, want)
+	}
+}
+
+// Chelsea Zhuang
+func TestRecipeAPISearchEmptyAndCaseInsensitive(t *testing.T) {
+	handler, _ := newTestAPI(t)
+
+	createResponse := httptest.NewRecorder()
+	handler.ServeHTTP(createResponse, httptest.NewRequest(http.MethodPost, "/api/recipes", strings.NewReader(`{"name":"Creamy Tomato Soup","ingredients":["tomato"],"instructions":["Simmer gently"]}`)))
+	if createResponse.Code != http.StatusCreated {
+		t.Fatalf("POST status = %d, want %d: %s", createResponse.Code, http.StatusCreated, createResponse.Body.String())
+	}
+
+	tests := []struct {
+		name string
+		path string
+		want int
+	}{
+		{name: "empty input returns no results", path: "/api/recipes/search", want: 0},
+		{name: "uppercase query matches lowercase recipe text", path: "/api/recipes/search?q=TOMATO", want: 1},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, test.path, nil))
+			if response.Code != http.StatusOK {
+				t.Fatalf("GET %s status = %d, want %d", test.path, response.Code, http.StatusOK)
+			}
+			var recipes []Recipe
+			if err := json.Unmarshal(response.Body.Bytes(), &recipes); err != nil {
+				t.Fatalf("decode search results: %v", err)
+			}
+			if len(recipes) != test.want {
+				t.Fatalf("GET %s returned %d recipes, want %d: %+v", test.path, len(recipes), test.want, recipes)
+			}
+			if test.want == 1 && recipes[0].Name != "Creamy Tomato Soup" {
+				t.Fatalf("case-insensitive search returned %+v, want Creamy Tomato Soup", recipes)
+			}
+		})
 	}
 }
 
