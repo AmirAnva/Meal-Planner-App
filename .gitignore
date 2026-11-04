@@ -14,3 +14,7 @@
 .DS_Store
 .idea/
 .vscode/
+
+# vite+npm stuff
+/frontend/node_modules/
+/frontend/dist/

@@ -4,11 +4,11 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>Meal Planner – Recipes</title>
-  <link rel="stylesheet" href="style.css" />
+  <link rel="stylesheet" href="/src/style.css" />
 </head>
 <body>
 
-  <!-- ══════════ NAVBAR ══════════ -->
+  <!-- NAVBAR -->
   <nav class="navbar">
 
     <a href="#" class="nav-logo" onclick="navigateTo('recipes'); return false;">
@@ -37,13 +37,6 @@
       </li>
     </ul>
 
-    <div class="nav-search">
-      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
-      </svg>
-      <input type="text" id="search-input" placeholder="Search recipes or ingredients…" oninput="handleSearch(this.value)" />
-    </div>
-
 
     <!-- We will need this for account functionality later.
     <a href="#" class="nav-profile" onclick="return false" title="Profile">
@@ -55,10 +48,10 @@
     -->
 
   </nav>
-  <!-- ══════════ END NAVBAR ══════════ -->
+  <!-- END NAVBAR -->
 
 
-  <!-- ══════════ MAIN ══════════ -->
+  <!-- MAIN -->
   <main class="page-content" id="recipes-view">
 
     <!-- Page header row -->
@@ -70,6 +63,14 @@
         </svg>
         New Recipe
       </button>
+    </div>
+
+    <!-- Search toolbar -->
+    <div class="recipes-search-bar">
+      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+        <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+      </svg>
+      <input type="text" id="search-input" placeholder="Search recipes or ingredients…" oninput="handleSearch(this.value)" />
     </div>
 
     <!-- Recipe card grid -->
@@ -135,7 +136,7 @@
   </main>
 
 
-  <!-- ══════════ ADD / EDIT RECIPE MODAL ══════════ -->
+  <!-- ADD / EDIT RECIPE MODAL -->
   <div class="modal-backdrop" id="modal-backdrop" onclick="backdropClick(event)" style="display:none">
     <div class="modal">
 
@@ -166,9 +167,9 @@
       </form>
     </div>
   </div>
-  <!-- ══════════ END MODAL ══════════ -->
+  <!-- END MODAL -->
 
-  <!-- ══════════ RECIPE DETAIL MODAL ══════════ -->
+  <!-- RECIPE DETAIL MODAL -->
   <div class="modal-backdrop" id="detail-backdrop" onclick="backdropDetailClick(event)" style="display:none">
     <div class="modal modal-detail">
 
@@ -197,9 +198,9 @@
 
     </div>
   </div>
-  <!-- ══════════ END RECIPE DETAIL MODAL ══════════ -->
+  <!-- END RECIPE DETAIL MODAL -->
 
-  <!-- ══════════ SELECT MEAL RECIPE MODAL ══════════ -->
+  <!-- SELECT MEAL RECIPE MODAL -->
   <div class="modal-backdrop" id="meal-modal-backdrop" onclick="backdropMealClick(event)" style="display:none">
     <div class="modal">
 
@@ -231,14 +232,12 @@
 
     </div>
   </div>
-  <!-- ══════════ END SELECT MEAL RECIPE MODAL ══════════ -->
+  <!--END SELECT MEAL RECIPE MODAL -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>
 
-  <!-- View layer (rendering) loaded before controller -->
-  <script src="view.js"></script>
-  <!-- Controller layer (event handlers & API calls) -->
-  <script src="controller.js"></script>
+  <!-- Application entry point -->
+  <script type="module" src="/src/controller.js"></script>
 </body>
 </html>

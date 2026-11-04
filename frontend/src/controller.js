@@ -1,6 +1,6 @@
 // ── controller.js — Event handlers & API calls (Controller layer) ─
 
-const API_BASE = 'http://localhost:8080';
+import * as View from './view.js';
 
 // ── State ─────────────────────────────────────────────────────────
 let recipes             = [];
@@ -11,7 +11,7 @@ let mealSearchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, options);
+  const res = await fetch(path, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);
@@ -44,10 +44,10 @@ async function loadRecipes() {
     if (searchInput && searchInput.value.trim()) {
       handleSearch(searchInput.value);
     } else {
-      render(recipes);
+      View.render(recipes);
     }
   } catch (err) {
-    showToast('Could not load recipes: ' + err.message);
+    View.showToast('Could not load recipes: ' + err.message);
   }
 }
 
@@ -69,9 +69,9 @@ async function loadCalendar() {
         calendarMeals[m.meal_type] = m;
       });
     }
-    renderCalendar();
+    View.renderCalendar(calendarMeals);
   } catch (err) {
-    showToast('Could not load calendar: ' + err.message);
+    View.showToast('Could not load calendar: ' + err.message);
   }
 }
 
@@ -79,7 +79,7 @@ async function loadCalendar() {
 async function submitRecipe(e) {
   e.preventDefault();
 
-  const { editId, payload } = readRecipeForm();
+  const { editId, payload } = View.readRecipeForm();
 
   try {
     if (editId) {
@@ -90,15 +90,15 @@ async function submitRecipe(e) {
         body: JSON.stringify(payload),
       });
       recipes = recipes.map(r => r.id === updated.id ? updated : r);
-      closeModal();
+      View.closeModal();
       const searchInput = document.getElementById('search-input');
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        render(recipes);
+        View.render(recipes);
       }
       loadCalendar();
-      showToast(`"${updated.name}" updated!`);
+      View.showToast(`"${updated.name}" updated!`);
     } else {
       // Create new recipe
       const created = await apiFetch('/api/recipes', {
@@ -107,23 +107,23 @@ async function submitRecipe(e) {
         body: JSON.stringify(payload),
       });
       recipes.push(created);
-      closeModal();
+      View.closeModal();
       const searchInput = document.getElementById('search-input');
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        render(recipes);
+        View.render(recipes);
       }
-      showToast(`"${created.name}" added!`);
+      View.showToast(`"${created.name}" added!`);
     }
   } catch (err) {
-    showToast('Could not save recipe: ' + err.message);
+    View.showToast('Could not save recipe: ' + err.message);
   }
 }
 
 // ── Remove recipe ─────────────────────────────────────────────────
 async function removeRecipe(id) {
-  if (!animateRecipeRemoval(id)) return;
+  if (!View.animateRecipeRemoval(id)) return;
 
   try {
     await apiFetch(`/api/recipes/${id}`, { method: 'DELETE' });
@@ -133,22 +133,22 @@ async function removeRecipe(id) {
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        render(recipes);
+        View.render(recipes);
       }
       loadCalendar();
-      showToast('Recipe removed.');
+      View.showToast('Recipe removed.');
     }, 200);
   } catch (err) {
-    restoreRecipeCard(id);
-    showToast('Could not remove recipe: ' + err.message);
+    View.restoreRecipeCard(id);
+    View.showToast('Could not remove recipe: ' + err.message);
   }
 }
 
 // ── Edit button from detail modal ─────────────────────────────────
 function editFromDetail() {
-  const id = getDetailRecipeId();
-  closeDetailModal();
-  openEditModal(id);
+  const id = View.getDetailRecipeId();
+  View.closeDetailModal();
+  View.openEditModal(id, recipes);
 }
 
 // ── Search in Recipes ─────────────────────────────────────────────
@@ -157,7 +157,7 @@ async function handleSearch(val) {
   const requestId = ++searchRequestId;
 
   if (!query) {
-    render(recipes);
+    View.render(recipes);
     return;
   }
 
@@ -165,10 +165,10 @@ async function handleSearch(val) {
     const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
     if (requestId !== searchRequestId) return;
     const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
-    render(results);
+    View.render(results);
   } catch (err) {
     if (requestId !== searchRequestId) return;
-    showToast('Could not search recipes: ' + err.message);
+    View.showToast('Could not search recipes: ' + err.message);
   }
 }
 
@@ -181,9 +181,6 @@ function navigateTo(page) {
 
   const calendarView = document.getElementById('calendar-view');
   if (calendarView) calendarView.style.display = isRecipes ? 'none' : 'block';
-
-  const navSearch = document.querySelector('.nav-search');
-  if (navSearch) navSearch.style.display = isRecipes ? 'flex' : 'none';
 
   document.querySelectorAll('.nav-item').forEach(link => {
     link.classList.toggle(
@@ -227,7 +224,7 @@ async function openMealSelector(mealType) {
       // Continue with empty list if fails
     }
   }
-  openMealSelectorModal(mealType, recipes);
+  View.openMealSelectorModal(mealType, recipes);
 }
 
 async function handleMealRecipeSearch(val) {
@@ -235,7 +232,7 @@ async function handleMealRecipeSearch(val) {
   const requestId = ++mealSearchRequestId;
 
   if (!query) {
-    renderMealPickerList(recipes);
+    View.renderMealPickerList(recipes);
     return;
   }
 
@@ -243,10 +240,10 @@ async function handleMealRecipeSearch(val) {
     const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
     if (requestId !== mealSearchRequestId) return;
     const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
-    renderMealPickerList(results);
+    View.renderMealPickerList(results);
   } catch (err) {
     if (requestId !== mealSearchRequestId) return;
-    showToast('Could not search recipes: ' + err.message);
+    View.showToast('Could not search recipes: ' + err.message);
   }
 }
 
@@ -267,13 +264,13 @@ async function selectRecipeForMeal(recipeId) {
       body: JSON.stringify(payload),
     });
     calendarMeals[mealType] = updated;
-    closeMealModal();
-    renderCalendar();
+    View.closeMealModal();
+    View.renderCalendar(calendarMeals);
     const recipeName = (updated && updated.recipe && updated.recipe.name) ? updated.recipe.name : 'Recipe';
     const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
-    showToast(`"${recipeName}" assigned to ${displayType}!`);
+    View.showToast(`"${recipeName}" assigned to ${displayType}!`);
   } catch (err) {
-    showToast('Could not assign meal: ' + err.message);
+    View.showToast('Could not assign meal: ' + err.message);
   }
 }
 
@@ -284,25 +281,54 @@ async function removeMeal(mealType) {
       method: 'DELETE',
     });
     delete calendarMeals[mealType];
-    renderCalendar();
+    View.renderCalendar(calendarMeals);
     const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
-    showToast(`Removed recipe from ${displayType}.`);
+    View.showToast(`Removed recipe from ${displayType}.`);
   } catch (err) {
-    showToast('Could not remove meal: ' + err.message);
+    View.showToast('Could not remove meal: ' + err.message);
   }
 }
+
+// ── Bind event handlers to window for inline HTML attributes ───────
+Object.assign(window, {
+  navigateTo,
+  showCalendar,
+  showRecipes,
+  handleSearch,
+  openModal: View.openModal,
+  closeModal: View.closeModal,
+  submitRecipe,
+  openEditModal: (id) => View.openEditModal(id, recipes),
+  removeRecipe,
+  editFromDetail,
+  openDetailModal: (id) => View.openDetailModal(id, recipes, calendarMeals),
+  closeDetailModal: View.closeDetailModal,
+  backdropClick: View.backdropClick,
+  backdropDetailClick: View.backdropDetailClick,
+  backdropMealClick: View.backdropMealClick,
+  openMealSelector,
+  handleMealRecipeSearch,
+  selectRecipeForMeal,
+  removeMeal,
+  closeMealModal: View.closeMealModal,
+});
 
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    closeModal();
-    closeDetailModal();
-    closeMealModal();
+    View.closeModal();
+    View.closeDetailModal();
+    View.closeMealModal();
   }
 });
 
 // ── Init ──────────────────────────────────────────────────────────
-document.addEventListener('DOMContentLoaded', () => {
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', () => {
+    loadRecipes();
+    loadCalendar();
+  });
+} else {
   loadRecipes();
   loadCalendar();
-});
+}

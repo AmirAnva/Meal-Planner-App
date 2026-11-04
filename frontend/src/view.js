@@ -1,6 +1,6 @@
 // ── view.js — DOM rendering (View layer) ────────────────────────
 
-function escapeHTML(str) {
+export function escapeHTML(str) {
   if (!str) return '';
   return String(str)
     .replace(/&/g, '&amp;')
@@ -11,7 +11,7 @@ function escapeHTML(str) {
 }
 
 // ── Recipe grid ─────────────────────────────────────────────────
-function render(recipeList = recipes) {
+export function render(recipeList = []) {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
   if (!grid || !empty) return;
@@ -28,7 +28,7 @@ function render(recipeList = recipes) {
   grid.innerHTML = filtered.map(cardHTML).join('');
 }
 
-function cardHTML(r) {
+export function cardHTML(r) {
   const ingCount  = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
   const stepCount = (r.instructions && r.instructions.length) ? r.instructions.length : 0;
 
@@ -51,7 +51,7 @@ function cardHTML(r) {
 }
 
 // ── Calendar rendering ───────────────────────────────────────────
-function renderCalendar() {
+export function renderCalendar(calendarMeals = {}) {
   const mealTypes = ['breakfast', 'lunch', 'dinner'];
   mealTypes.forEach(type => {
     const meal = calendarMeals[type];
@@ -103,7 +103,7 @@ function renderCalendar() {
 }
 
 // ── Meal Selector Modal ──────────────────────────────────────────
-function openMealSelectorModal(mealType, recipesList) {
+export function openMealSelectorModal(mealType, recipesList = []) {
   const backdrop = document.getElementById('meal-modal-backdrop');
   if (!backdrop) return;
 
@@ -122,7 +122,7 @@ function openMealSelectorModal(mealType, recipesList) {
   if (searchInput) searchInput.focus();
 }
 
-function renderMealPickerList(recipesList) {
+export function renderMealPickerList(recipesList = []) {
   const container = document.getElementById('meal-picker-list');
   if (!container) return;
 
@@ -156,19 +156,19 @@ function renderMealPickerList(recipesList) {
   }).join('');
 }
 
-function closeMealModal() {
+export function closeMealModal() {
   const backdrop = document.getElementById('meal-modal-backdrop');
   if (backdrop) backdrop.style.display = 'none';
   const typeInput = document.getElementById('selected-meal-type');
   if (typeInput) typeInput.value = '';
 }
 
-function backdropMealClick(e) {
+export function backdropMealClick(e) {
   if (e.target === e.currentTarget) closeMealModal();
 }
 
 // ── Add/Edit modal ───────────────────────────────────────────────
-function openModal() {
+export function openModal() {
   document.getElementById('modal-title').textContent = 'Add New Recipe';
   document.getElementById('modal-backdrop').style.display = 'flex';
   document.getElementById('modal-edit-id').value = '';
@@ -178,8 +178,8 @@ function openModal() {
   document.getElementById('f-name').focus();
 }
 
-function openEditModal(id) {
-  const r = recipes.find(x => x.id === Number(id));
+export function openEditModal(id, recipeList = []) {
+  const r = recipeList.find(x => x.id === Number(id));
   if (!r) return;
 
   document.getElementById('modal-title').textContent = 'Edit Recipe';
@@ -191,7 +191,7 @@ function openEditModal(id) {
   document.getElementById('f-name').focus();
 }
 
-function closeModal() {
+export function closeModal() {
   const backdrop = document.getElementById('modal-backdrop');
   if (backdrop) backdrop.style.display = 'none';
   document.getElementById('modal-edit-id').value = '';
@@ -200,13 +200,13 @@ function closeModal() {
   document.getElementById('f-instructions').value = '';
 }
 
-function backdropClick(e) {
+export function backdropClick(e) {
   if (e.target === e.currentTarget) closeModal();
 }
 
 // ── Detail modal ─────────────────────────────────────────────────
-function openDetailModal(id) {
-  let r = recipes.find(x => x.id === Number(id));
+export function openDetailModal(id, recipeList = [], calendarMeals = {}) {
+  let r = recipeList.find(x => x.id === Number(id));
   if (!r) {
     // Check in today's assigned meals
     for (const type of ['breakfast', 'lunch', 'dinner']) {
@@ -243,18 +243,18 @@ function openDetailModal(id) {
   document.getElementById('detail-backdrop').style.display = 'flex';
 }
 
-function closeDetailModal() {
+export function closeDetailModal() {
   const backdrop = document.getElementById('detail-backdrop');
   if (backdrop) backdrop.style.display = 'none';
 }
 
-function backdropDetailClick(e) {
+export function backdropDetailClick(e) {
   if (e.target === e.currentTarget) closeDetailModal();
 }
 
 // ── Toast ────────────────────────────────────────────────────────
 let toastTimer;
-function showToast(msg) {
+export function showToast(msg) {
   const t = document.getElementById('toast');
   if (!t) return;
   t.textContent = msg;
@@ -263,13 +263,13 @@ function showToast(msg) {
   toastTimer = setTimeout(() => t.classList.remove('show'), 2500);
 }
 
-function setActiveView(view) {
-  if (typeof navigateTo === 'function') {
-    navigateTo(view);
+export function setActiveView(view) {
+  if (typeof window.navigateTo === 'function') {
+    window.navigateTo(view);
   }
 }
 
-function animateRecipeRemoval(id) {
+export function animateRecipeRemoval(id) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return false;
   card.style.transition = 'opacity .2s, transform .2s';
@@ -278,14 +278,14 @@ function animateRecipeRemoval(id) {
   return true;
 }
 
-function restoreRecipeCard(id) {
+export function restoreRecipeCard(id) {
   const card = document.getElementById(`card-${id}`);
   if (!card) return;
   card.style.opacity = '1';
   card.style.transform = 'scale(1)';
 }
 
-function readRecipeForm() {
+export function readRecipeForm() {
   const editId = document.getElementById('modal-edit-id').value;
   const name = document.getElementById('f-name').value.trim();
   const ingredients = document.getElementById('f-ingredients').value
@@ -295,6 +295,6 @@ function readRecipeForm() {
   return { editId, payload: { name, ingredients, instructions } };
 }
 
-function getDetailRecipeId() {
+export function getDetailRecipeId() {
   return document.getElementById('detail-recipe-id').value;
 }
