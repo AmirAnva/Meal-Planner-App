@@ -13,12 +13,12 @@ Meal Planner helps users organize recipes, find meals based on available ingredi
 - **R4:** Delete a recipe that is no longer needed.
 
 ### Recipe Discovery
-- **R4:** Search for recipes by name or keyword.
-- **R5:** Find recipes based on available ingredients.
+- **R5:** Search for recipes by name or keyword.
+- **R6:** Find recipes based on available ingredients.
 
 ### Daily Meal Planning
-- **R6:** Assign recipes to breakfast, lunch, or dinner for the current day.
-- **R7:** View assigned meals and their associated recipes.
+- **R7:** Assign recipes to breakfast, lunch, or dinner for the current day.
+- **R8:** View assigned meals and their associated recipes.
 
 ## 3. Future Requirements
 
