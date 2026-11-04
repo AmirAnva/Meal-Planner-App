@@ -2,9 +2,6 @@
 
 import * as View from './view.js';
 
-// Empty string allows Vite's proxy (/api -> http://localhost:8080) to handle requests cleanly
-const API_BASE = '';
-
 // ── State ─────────────────────────────────────────────────────────
 let recipes             = [];
 let calendarMeals       = {};
@@ -14,7 +11,7 @@ let mealSearchRequestId = 0;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
-  const res = await fetch(API_BASE + path, options);
+  const res = await fetch(path, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
     throw new Error(body.error || `HTTP ${res.status}`);

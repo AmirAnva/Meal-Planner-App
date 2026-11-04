@@ -9,7 +9,7 @@ Meal Planner is a lightweight recipe and meal scheduling app with a modern JavaS
 
 ## Project structure
 
-- `frontend/` contains the browser application (HTML, CSS, JavaScript, and Vite configuration).
+- `frontend/` contains the browser application (HTML, Vite configuration, and `src/` for CSS & JavaScript).
 - `backend/` contains the Go HTTP API, SQLite repository, and unit/integration tests.
 - `REQUIREMENTS.md` contains the MVP requirements and functional scope.
 - `SPECIFICATIONS.md` contains the technical specification and data models.
