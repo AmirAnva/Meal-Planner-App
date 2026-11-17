@@ -1,149 +1,339 @@
 package main
 
 import (
-	"database/sql"
 	"encoding/json"
+	"errors"
+	"fmt"
 	"net/http"
-	"net/http/httptest"
-	"path/filepath"
 	"strconv"
 	"strings"
-	"testing"
+	"time"
 )
 
-func TestPantryAPILifecycleAndPersistence(t *testing.T) {
-	handler, databasePath := newTestAPI(t)
-
-	response := httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/pantry", nil))
-	if response.Code != http.StatusOK || strings.TrimSpace(response.Body.String()) != "[]" {
-		t.Fatalf("initial GET pantry = (%d, %s), want (200, [])", response.Code, response.Body.String())
-	}
-
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/pantry", strings.NewReader(`{"ingredient":"  Olive Oil  ","quantity":1.5,"unit":"l"}`)))
-	if response.Code != http.StatusCreated {
-		t.Fatalf("POST pantry status = %d, want %d: %s", response.Code, http.StatusCreated, response.Body.String())
-	}
-	var created PantryItem
-	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
-		t.Fatalf("decode created pantry item: %v", err)
-	}
-	if created.ID < 1 || created.Ingredient != "Olive Oil" || created.Quantity != 1.5 || created.Unit != "l" {
-		t.Fatalf("created pantry item = %+v, want trimmed Olive Oil with quantity 1.5 l", created)
-	}
-
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/pantry", strings.NewReader(`{"ingredient":"olive oil","quantity":1,"unit":"l"}`)))
-	if response.Code != http.StatusConflict {
-		t.Fatalf("duplicate POST status = %d, want %d", response.Code, http.StatusConflict)
-	}
-
-	response = httptest.NewRecorder()
-	handler.ServeHTTP(response, httptest.NewRequest(http.MethodPut, "/api/pantry/1", strings.NewReader(`{"quantity":750,"unit":"ml"}`)))
-	if response.Code != http.StatusOK {
-		t.Fatalf("PUT pantry status = %d, want %d: %s", response.Code, http.StatusOK, response.Body.String())
-	}
-	if err := json.Unmarshal(response.Body.Bytes(), &created); err != nil {
-		t.Fatalf("decode updated pantry item: %v", err)
-	}
-	if created.Ingredient != "Olive Oil" || created.Quantity != 750 || created.Unit != "ml" {
-		t.Fatalf("updated pantry item = %+v, want Olive Oil with quantity 750 ml", created)
-	}
-
-	reloaded, err := OpenSQLiteRepository(databasePath)
-	if err != nil {
-		t.Fatalf("reopen pantry database: %v", err)
-	}
-	defer reloaded.Close()
-	items, err := reloaded.ListPantryItems()
-	if err != nil {
-		t.Fatalf("list persisted pantry items: %v", err)
-	}
-	if len(items) != 1 || items[0] != created {
-		t.Fatalf("persisted pantry items = %+v, want [%+v]", items, created)
-	}
+type API struct {
+	store *SQLiteRepository
 }
 
-func TestPantryAPIValidatesAndRemovesItems(t *testing.T) {
-	handler, _ := newTestAPI(t)
-	tests := []struct {
-		name string
-		body string
-		want int
-	}{
-		{name: "missing ingredient", body: `{}`, want: http.StatusBadRequest},
-		{name: "blank ingredient", body: `{"ingredient":"  "}`, want: http.StatusBadRequest},
-		{name: "missing quantity", body: `{"ingredient":"Rice"}`, want: http.StatusBadRequest},
-		{name: "non-positive quantity", body: `{"ingredient":"Rice","quantity":0,"unit":"g"}`, want: http.StatusBadRequest},
-		{name: "unsupported unit", body: `{"ingredient":"Rice","quantity":1,"unit":"bucket"}`, want: http.StatusBadRequest},
-		{name: "malformed JSON", body: `{"ingredient":`, want: http.StatusBadRequest},
-	}
-	for _, test := range tests {
-		t.Run(test.name, func(t *testing.T) {
-			response := httptest.NewRecorder()
-			handler.ServeHTTP(response, httptest.NewRequest(http.MethodPost, "/api/pantry", strings.NewReader(test.body)))
-			if response.Code != test.want {
-				t.Fatalf("POST pantry status = %d, want %d: %s", response.Code, test.want, response.Body.String())
-			}
-		})
-	}
+func NewAPI(store *SQLiteRepository) http.Handler {
+	api := &API{store: store}
+	mux := http.NewServeMux()
+	mux.HandleFunc("GET /api/recipes", api.listRecipes)
+	mux.HandleFunc("GET /api/recipes/search", api.searchRecipes)
+	mux.HandleFunc("POST /api/recipes", api.createRecipe)
+	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
+	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
+	mux.HandleFunc("GET /api/pantry", api.listPantryItems)
+	mux.HandleFunc("POST /api/pantry", api.addPantryItem)
+	mux.HandleFunc("PUT /api/pantry/{id}", api.updatePantryItem)
+	mux.HandleFunc("DELETE /api/pantry/{id}", api.deletePantryItem)
+	mux.HandleFunc("GET /api/calendar", api.getCalendar)
+	mux.HandleFunc("POST /api/calendar/meals", api.assignCalendarMeal)
+	mux.HandleFunc("DELETE /api/calendar/meals", api.removeCalendarMeal)
+	return cors(mux)
+}
 
-	createResponse := httptest.NewRecorder()
-	handler.ServeHTTP(createResponse, httptest.NewRequest(http.MethodPost, "/api/pantry", strings.NewReader(`{"ingredient":"Tomatoes","quantity":3,"unit":"piece"}`)))
+func (api *API) listPantryItems(w http.ResponseWriter, _ *http.Request) {
+	items, err := api.store.ListPantryItems()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load pantry")
+		return
+	}
+	writeJSON(w, http.StatusOK, items)
+}
+
+func (api *API) addPantryItem(w http.ResponseWriter, r *http.Request) {
 	var item PantryItem
-	if err := json.Unmarshal(createResponse.Body.Bytes(), &item); err != nil {
-		t.Fatalf("decode created pantry item: %v", err)
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&item); err != nil {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid pantry item JSON: %v", err))
+		return
 	}
-	deleteResponse := httptest.NewRecorder()
-	handler.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/pantry/"+strconv.Itoa(item.ID), nil))
-	if deleteResponse.Code != http.StatusNoContent {
-		t.Fatalf("DELETE pantry item status = %d, want %d", deleteResponse.Code, http.StatusNoContent)
-	}
-	deleteResponse = httptest.NewRecorder()
-	handler.ServeHTTP(deleteResponse, httptest.NewRequest(http.MethodDelete, "/api/pantry/"+strconv.Itoa(item.ID), nil))
-	if deleteResponse.Code != http.StatusNotFound {
-		t.Fatalf("DELETE missing pantry item status = %d, want %d", deleteResponse.Code, http.StatusNotFound)
-	}
-}
-
-func TestPantrySchemaMigrationPreservesExistingItems(t *testing.T) {
-	databasePath := filepath.Join(t.TempDir(), "legacy.db")
-	legacyDB, err := sql.Open("sqlite", databasePath)
+	created, err := api.store.AddPantryItem(item)
 	if err != nil {
-		t.Fatalf("open legacy database: %v", err)
-	}
-
-	if _, err := legacyDB.Exec(`CREATE TABLE pantry_items (
-		pantry_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-		ingredient TEXT NOT NULL COLLATE NOCASE UNIQUE
-	); INSERT INTO pantry_items(ingredient) VALUES ('Flour')`); err != nil {
-		legacyDB.Close()
-		t.Fatalf("create legacy pantry table: %v", err)
-	}
-	if err := legacyDB.Close(); err != nil {
-		t.Fatalf("close legacy database: %v", err)
-	}
-
-	repository, err := OpenSQLiteRepository(databasePath)
-	if err != nil {
-		t.Fatalf("open migrated database: %v", err)
-	}
-	defer repository.Close()
-	items, err := repository.ListPantryItems()
-	if err != nil {
-		t.Fatalf("list migrated pantry items: %v", err)
-	}
-	want := PantryItem{ID: 1, Ingredient: "Flour"}
-	if len(items) != 1 || items[0] != want {
-		t.Fatalf("migrated pantry items = %+v, want [%+v]", items, want)
-	}
-}
-
-func TestPantryQuantityAcceptsCommonCookingUnits(t *testing.T) {
-	for _, unit := range []string{"g", "cup", "fl oz", "piece", "clove", "pinch", "handful"} {
-		if err := (PantryQuantity{Quantity: 1, Unit: unit}).Validate(); err != nil {
-			t.Errorf("PantryQuantity unit %q validation error = %v", unit, err)
+		if errors.Is(err, ErrPantryIngredientRequired) {
+			writeError(w, http.StatusBadRequest, "ingredient is required")
+			return
 		}
+		if errors.Is(err, ErrPantryQuantityInvalid) {
+			writeError(w, http.StatusBadRequest, "quantity must be positive and use a supported unit")
+			return
+		}
+		if errors.Is(err, ErrPantryItemExists) {
+			writeError(w, http.StatusConflict, "ingredient is already in the pantry")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save pantry item")
+		return
 	}
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (api *API) updatePantryItem(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "pantry item id must be a positive integer")
+		return
+	}
+	var quantity PantryQuantity
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&quantity); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid pantry quantity JSON")
+		return
+	}
+	updated, err := api.store.UpdatePantryItem(id, quantity)
+	if err != nil {
+		if errors.Is(err, ErrPantryQuantityInvalid) {
+			writeError(w, http.StatusBadRequest, "quantity must be positive and use a supported unit")
+			return
+		}
+		if errors.Is(err, ErrPantryItemNotFound) {
+			writeError(w, http.StatusNotFound, "pantry item not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not update pantry item")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (api *API) deletePantryItem(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "pantry item id must be a positive integer")
+		return
+	}
+	if err := api.store.DeletePantryItem(id); err != nil {
+		if errors.Is(err, ErrPantryItemNotFound) {
+			writeError(w, http.StatusNotFound, "pantry item not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not remove pantry item")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func (api *API) getCalendar(w http.ResponseWriter, r *http.Request) {
+	start := time.Now().Format("2006-01-02")
+	if value := r.URL.Query().Get("start"); value != "" {
+		if _, err := time.Parse("2006-01-02", value); err != nil {
+			writeError(w, http.StatusBadRequest, "start must be a date in YYYY-MM-DD format")
+			return
+		}
+		start = value
+	}
+	daysCount := 7
+	if value := r.URL.Query().Get("days"); value != "" {
+		parsed, err := strconv.Atoi(value)
+		if err != nil || parsed < 1 || parsed > 31 {
+			writeError(w, http.StatusBadRequest, "days must be between 1 and 31")
+			return
+		}
+		daysCount = parsed
+	}
+
+	startDate, _ := time.Parse("2006-01-02", start)
+	days := make([]Day, 0, daysCount)
+	for offset := 0; offset < daysCount; offset++ {
+		date := startDate.AddDate(0, 0, offset).Format("2006-01-02")
+		day := Day{Date: date, Meals: []Meal{}}
+		existingDay, err := api.store.GetDay(date)
+		if err != nil && !errors.Is(err, ErrDayNotFound) {
+			writeError(w, http.StatusInternalServerError, "could not load calendar")
+			return
+		}
+		if err == nil {
+			day = existingDay
+			day.Meals, err = api.store.ListMeals(day.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, "could not load calendar")
+				return
+			}
+		}
+		days = append(days, day)
+	}
+	writeJSON(w, http.StatusOK, calendar{Days: days})
+}
+
+type calendarMealRequest struct {
+	Date     string   `json:"date"`
+	RecipeID int      `json:"recipe_id"`
+	MealType MealType `json:"meal_type"`
+}
+
+func (api *API) assignCalendarMeal(w http.ResponseWriter, r *http.Request) {
+	var request calendarMealRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&request); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid meal JSON")
+		return
+	}
+	if _, err := time.Parse("2006-01-02", request.Date); err != nil {
+		writeError(w, http.StatusBadRequest, "date must be in YYYY-MM-DD format")
+		return
+	}
+	if request.RecipeID < 1 || !request.MealType.Valid() {
+		writeError(w, http.StatusBadRequest, "recipe_id and meal_type are required")
+		return
+	}
+	day, err := api.store.GetOrCreateDay(request.Date)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save calendar")
+		return
+	}
+	meal, err := api.store.AssignMeal(day.ID, request.RecipeID, request.MealType)
+	if err != nil {
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusBadRequest, "recipe not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save calendar")
+		return
+	}
+	writeJSON(w, http.StatusOK, meal)
+}
+
+func (api *API) removeCalendarMeal(w http.ResponseWriter, r *http.Request) {
+	date := r.URL.Query().Get("date")
+	mealType := MealType(r.URL.Query().Get("meal_type"))
+	if _, err := time.Parse("2006-01-02", date); err != nil || !mealType.Valid() {
+		writeError(w, http.StatusBadRequest, "date and meal_type are required")
+		return
+	}
+	day, err := api.store.GetDay(date)
+	if errors.Is(err, ErrDayNotFound) {
+		writeError(w, http.StatusNotFound, "calendar day not found")
+		return
+	}
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load calendar")
+		return
+	}
+	if err := api.store.RemoveMeal(day.ID, mealType); err != nil {
+		if errors.Is(err, ErrMealNotFound) {
+			writeError(w, http.StatusNotFound, "meal not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not remove meal")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+// updateRecipe retains the recipe edit flow introduced on main while delegating
+// validation and persistence to the model and SQLite repository.
+func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
+		return
+	}
+	var recipe Recipe
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&recipe); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
+		return
+	}
+	recipe.ID = id
+	updated, err := api.store.UpdateRecipe(recipe)
+	if err != nil {
+		if errors.Is(err, ErrRecipeNameRequired) {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusNotFound, "recipe not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save recipe")
+		return
+	}
+	writeJSON(w, http.StatusOK, updated)
+}
+
+func (api *API) listRecipes(w http.ResponseWriter, _ *http.Request) {
+	recipes, err := api.store.ListRecipes()
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load recipes")
+		return
+	}
+	writeJSON(w, http.StatusOK, recipes)
+}
+
+func (api *API) searchRecipes(w http.ResponseWriter, r *http.Request) {
+	query := strings.Join(r.URL.Query()["q"], " ")
+	recipes, err := api.store.SearchRecipes(query)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not search recipes")
+		return
+	}
+	writeJSON(w, http.StatusOK, recipes)
+}
+
+func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
+	var recipe Recipe
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&recipe); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid recipe JSON")
+		return
+	}
+	if err := recipe.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, "name is required")
+		return
+	}
+	created, err := api.store.CreateRecipe(recipe)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not save recipe")
+		return
+	}
+	w.Header().Set("Location", fmt.Sprintf("/api/recipes/%d", created.ID))
+	writeJSON(w, http.StatusCreated, created)
+}
+
+func (api *API) deleteRecipe(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "recipe id must be a positive integer")
+		return
+	}
+	if err := api.store.DeleteRecipe(id); err != nil {
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusNotFound, "recipe not found")
+			return
+		}
+		writeError(w, http.StatusInternalServerError, "could not save recipe book")
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
+func writeJSON(w http.ResponseWriter, status int, value any) {
+	w.Header().Set("Content-Type", "application/json")
+	w.WriteHeader(status)
+	if err := json.NewEncoder(w).Encode(value); err != nil {
+		// The response may already be committed; nothing else can be sent here.
+		return
+	}
+}
+
+func writeError(w http.ResponseWriter, status int, message string) {
+	writeJSON(w, status, map[string]string{"error": message})
+}
+
+func cors(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Access-Control-Allow-Origin", "*")
+		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type")
+		if r.Method == http.MethodOptions {
+			w.WriteHeader(http.StatusNoContent)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
