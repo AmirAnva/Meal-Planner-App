@@ -11,7 +11,9 @@ The application uses a decoupled client-server architecture:
 - **Recipe CRUD:** Create, view, update (`PUT`), and delete recipes.
 - **Search & Filtering:** Search recipes by title or ingredients in real time with client-side race-condition avoidance.
 - **Recipe Details:** Modal view displaying full ingredients list and step-by-step instructions.
+- **Pantry Management:** Add, list, update, and remove ingredients and quantities persisted in SQLite; ingredient names are unique without regard to case. The pantry can display metric or US customary units. Weight-to-volume conversion is limited to ingredients with known conversion data.
 - **Daily Meal Planning:** Assign recipes to `breakfast`, `lunch`, or `dinner` slots for any day, view assigned meals, and remove assignments.
+- **Weekly Shopping Summary:** Aggregate recipe ingredient demand across meals scheduled for the next seven days and compare it with pantry quantities. Ingredient lines are parsed from the existing free-text recipe field; missing, insufficient, and uncomparable quantities are reported separately.
 - **Persistent Storage:** SQLite database with foreign keys and cascade deletions.
 
 ## 3. Backend API
@@ -25,6 +27,10 @@ The Go server listens on port `8080` by default.
 | POST | `/api/recipes` | `{"name": "...", "ingredients": [...], "instructions": [...]}` | 201, 400, 500 | Create a recipe (name required) |
 | PUT | `/api/recipes/{id}` | `{"name": "...", "ingredients": [...], "instructions": [...]}` | 200, 400, 404, 500 | Update an existing recipe |
 | DELETE | `/api/recipes/{id}` | None | 204, 400, 404, 500 | Delete a recipe |
+| GET | `/api/pantry` | None | 200, 500 | List saved pantry ingredients |
+| POST | `/api/pantry` | `{"ingredient": "...", "quantity": N, "unit": "g"}` | 201, 400, 409, 500 | Add a pantry ingredient with quantity |
+| PUT | `/api/pantry/{id}` | `{"quantity": N, "unit": "g"}` | 200, 400, 404, 500 | Update a pantry ingredient's quantity |
+| DELETE | `/api/pantry/{id}` | None | 204, 400, 404, 500 | Remove a pantry ingredient |
 | GET | `/api/calendar?start=YYYY-MM-DD&days=N` | None | 200, 400, 500 | Get dates and assigned meals |
 | POST | `/api/calendar/meals` | `{"date": "YYYY-MM-DD", "meal_type": "...", "recipe_id": N}` | 200, 400, 404, 500 | Assign or replace a meal |
 | DELETE | `/api/calendar/meals?date=YYYY-MM-DD&meal_type=...` | None | 204, 400, 404, 500 | Remove a meal assignment |
@@ -44,7 +50,12 @@ CREATE TABLE IF NOT EXISTS recipes (
   ingredients TEXT NOT NULL DEFAULT '[]',
   instructions TEXT NOT NULL DEFAULT '[]'
 );
-
+CREATE TABLE IF NOT EXISTS pantry_items (
+  pantry_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ingredient TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  quantity REAL NOT NULL DEFAULT 0,
+  unit TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS days (
   day_id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL UNIQUE
