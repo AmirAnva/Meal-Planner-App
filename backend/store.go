@@ -13,9 +13,11 @@ import (
 )
 
 var (
-	ErrRecipeNotFound = errors.New("recipe not found")
-	ErrDayNotFound    = errors.New("day not found")
-	ErrMealNotFound   = errors.New("meal not found")
+	ErrRecipeNotFound     = errors.New("recipe not found")
+	ErrPantryItemNotFound = errors.New("pantry item not found")
+	ErrPantryItemExists   = errors.New("pantry item already exists")
+	ErrDayNotFound        = errors.New("day not found")
+	ErrMealNotFound       = errors.New("meal not found")
 )
 
 // SQLiteRepository owns the database connection and all SQL persistence.
@@ -60,6 +62,12 @@ CREATE TABLE IF NOT EXISTS recipes (
   ingredients TEXT NOT NULL DEFAULT '[]',
   instructions TEXT NOT NULL DEFAULT '[]'
 );
+CREATE TABLE IF NOT EXISTS pantry_items (
+  pantry_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  ingredient TEXT NOT NULL COLLATE NOCASE UNIQUE,
+  quantity REAL NOT NULL DEFAULT 0,
+  unit TEXT NOT NULL DEFAULT ''
+);
 CREATE TABLE IF NOT EXISTS days (
   day_id INTEGER PRIMARY KEY AUTOINCREMENT,
   date TEXT NOT NULL UNIQUE
@@ -71,10 +79,125 @@ CREATE TABLE IF NOT EXISTS meals (
   meal_type TEXT NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner')),
   UNIQUE(day_id, meal_type)
 );`)
-	return err
+	if err != nil {
+		return err
+	}
+	return migratePantryQuantityColumns(db)
+}
+
+func migratePantryQuantityColumns(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(pantry_items)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if !columns["quantity"] {
+		if _, err := db.Exec(`ALTER TABLE pantry_items ADD COLUMN quantity REAL NOT NULL DEFAULT 0`); err != nil {
+			return err
+		}
+	}
+	if !columns["unit"] {
+		if _, err := db.Exec(`ALTER TABLE pantry_items ADD COLUMN unit TEXT NOT NULL DEFAULT ''`); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (r *SQLiteRepository) Close() error { return r.db.Close() }
+
+func (r *SQLiteRepository) ListPantryItems() ([]PantryItem, error) {
+	rows, err := r.db.Query(`SELECT pantry_item_id, ingredient, quantity, unit FROM pantry_items ORDER BY ingredient COLLATE NOCASE, pantry_item_id`)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []PantryItem{}
+	for rows.Next() {
+		var item PantryItem
+		if err := rows.Scan(&item.ID, &item.Ingredient, &item.Quantity, &item.Unit); err != nil {
+			return nil, err
+		}
+		items = append(items, item)
+	}
+	return items, rows.Err()
+}
+
+func (r *SQLiteRepository) AddPantryItem(item PantryItem) (PantryItem, error) {
+	if err := item.Validate(); err != nil {
+		return PantryItem{}, err
+	}
+	item.Ingredient = strings.TrimSpace(item.Ingredient)
+	result, err := r.db.Exec(`INSERT INTO pantry_items(ingredient, quantity, unit) VALUES (?, ?, ?) ON CONFLICT(ingredient) DO NOTHING`, item.Ingredient, item.Quantity, item.Unit)
+	if err != nil {
+		return PantryItem{}, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return PantryItem{}, err
+	}
+	if count == 0 {
+		return PantryItem{}, ErrPantryItemExists
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return PantryItem{}, err
+	}
+	item.ID = int(id)
+	return item, nil
+}
+
+func (r *SQLiteRepository) UpdatePantryItem(id int, quantity PantryQuantity) (PantryItem, error) {
+	if err := quantity.Validate(); err != nil {
+		return PantryItem{}, err
+	}
+	result, err := r.db.Exec(`UPDATE pantry_items SET quantity = ?, unit = ? WHERE pantry_item_id = ?`, quantity.Quantity, quantity.Unit, id)
+	if err != nil {
+		return PantryItem{}, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return PantryItem{}, err
+	}
+	if count == 0 {
+		return PantryItem{}, ErrPantryItemNotFound
+	}
+	item := PantryItem{ID: id, Quantity: quantity.Quantity, Unit: quantity.Unit}
+	err = r.db.QueryRow(`SELECT ingredient FROM pantry_items WHERE pantry_item_id = ?`, id).Scan(&item.Ingredient)
+	return item, err
+}
+
+func (r *SQLiteRepository) DeletePantryItem(id int) error {
+	result, err := r.db.Exec(`DELETE FROM pantry_items WHERE pantry_item_id = ?`, id)
+	if err != nil {
+		return err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		return ErrPantryItemNotFound
+	}
+	return nil
+}
 
 func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err := recipe.Validate(); err != nil {
