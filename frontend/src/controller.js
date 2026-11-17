@@ -123,6 +123,16 @@ async function submitRecipe(e) {
 
 // ── Remove recipe ─────────────────────────────────────────────────
 async function removeRecipe(id) {
+  const recipe = recipes.find(r => r.id === Number(id));
+  const card = document.getElementById(`card-${id}`);
+  const cardName = card?.querySelector('.card-name')?.textContent?.trim();
+  const recipeName = (recipe && recipe.name) || cardName;
+  const message = recipeName
+    ? `Are you sure you want to remove "${recipeName}"?`
+    : 'Are you sure you want to remove this recipe?';
+
+  if (!window.confirm(message)) return;
+
   if (!View.animateRecipeRemoval(id)) return;
 
   try {
