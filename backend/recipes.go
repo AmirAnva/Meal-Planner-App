@@ -2,10 +2,15 @@ package main
 
 import (
 	"errors"
+	"math"
 	"strings"
 )
 
-var ErrRecipeNameRequired = errors.New("recipe name is required")
+var (
+	ErrRecipeNameRequired       = errors.New("recipe name is required")
+	ErrPantryIngredientRequired = errors.New("pantry ingredient is required")
+	ErrPantryQuantityInvalid    = errors.New("pantry quantity or unit is invalid")
+)
 
 // Recipe is the application model for a saved recipe. Persistence is handled
 // by SQLiteRepository, keeping SQL concerns out of the model.
@@ -21,6 +26,39 @@ func (r Recipe) Validate() error {
 		return ErrRecipeNameRequired
 	}
 	return nil
+}
+
+// PantryItem is an ingredient saved in the user's pantry.
+type PantryItem struct {
+	ID         int     `json:"id"`
+	Ingredient string  `json:"ingredient"`
+	Quantity   float64 `json:"quantity"`
+	Unit       string  `json:"unit"`
+}
+
+func (item PantryItem) Validate() error {
+	if strings.TrimSpace(item.Ingredient) == "" {
+		return ErrPantryIngredientRequired
+	}
+	return (PantryQuantity{Quantity: item.Quantity, Unit: item.Unit}).Validate()
+}
+
+type PantryQuantity struct {
+	Quantity float64 `json:"quantity"`
+	Unit     string  `json:"unit"`
+}
+
+func (quantity PantryQuantity) Validate() error {
+	if quantity.Quantity <= 0 || math.IsNaN(quantity.Quantity) || math.IsInf(quantity.Quantity, 0) {
+		return ErrPantryQuantityInvalid
+	}
+	switch quantity.Unit {
+	case "g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "cup", "fl oz", "piece",
+		"clove", "can", "bunch", "pinch", "dash", "package", "head", "slice", "stalk", "sprig", "handful":
+		return nil
+	default:
+		return ErrPantryQuantityInvalid
+	}
 }
 
 // Day groups meal assignments for one calendar date.
