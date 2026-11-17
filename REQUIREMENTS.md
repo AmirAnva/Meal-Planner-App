@@ -20,14 +20,18 @@ Meal Planner helps users organize recipes, find meals based on available ingredi
 - **R7:** Assign recipes to breakfast, lunch, or dinner for the current day.
 - **R8:** View assigned meals and their associated recipes.
 
+### Pantry Management
+- **R9:** Add, view, and remove ingredients with their quantities and units in the pantry.
+- **R10:** Switch pantry measurements between metric and US customary units, converting compatible units and supported ingredient-specific weight-to-volume measurements.
+- **R11:** View a combined list of ingredients missing or insufficient in the pantry for meals scheduled over the next seven days, with unclear amounts flagged for review.
+
 ## 3. Future Requirements
 
 - **Recipe Organization:** Tags, categories, dietary filters, and serving adjustments.
-- **Pantry Management:** Track and update available ingredients.
 - **Grocery Planning:** Create and manage shopping lists.
 - **Meal Calendar:** Schedule and manage meals across multiple days.
 - **Account Preferences:** Manage profiles, dietary restrictions, allergies, and serving preferences.
 
 ## 4. Walking Skeleton Scope
 
-The current implementation supports creating, viewing, searching by name, and deleting recipes, with persistent data storage. Remaining MVP features will be developed in subsequent milestones.
+The current implementation supports recipe management, persistent pantry ingredients, and meal planning. Remaining MVP features will be developed in subsequent milestones.
