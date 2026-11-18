@@ -83,17 +83,17 @@ export function renderCalendar(calendarMeals = {}) {
 
       if (actionsElem) {
         actionsElem.innerHTML = `
-          <button class="btn-add" onclick="openMealSelector('${type}')">Change Recipe</button>
-          <button class="btn-secondary" onclick="removeMeal('${type}')">Remove</button>
+          <button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">Change</button>
+          <button type="button" class="btn-secondary btn-sm" onclick="removeMeal('${type}')">Remove</button>
         `;
       }
     } else {
       if (recipeElem) {
-        recipeElem.innerHTML = `<p style="color: #777;">No recipe assigned</p>`;
+        recipeElem.innerHTML = `<p class="meal-empty-text">No recipe assigned</p>`;
       }
       if (actionsElem) {
         actionsElem.innerHTML = `
-          <button class="btn-add" onclick="openMealSelector('${type}')">
+          <button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">
             Add Recipe
           </button>
         `;
@@ -102,14 +102,184 @@ export function renderCalendar(calendarMeals = {}) {
   });
 }
 
+// ── Day Meals Modal ──────────────────────────────────────────────
+export function openDayMealsModal(dateStr, calendarMeals = {}) {
+  const backdrop = document.getElementById('day-meals-backdrop');
+  if (!backdrop) return;
+
+  const [year, month, day] = dateStr.split('-').map(Number);
+  const dateObj = new Date(year, month - 1, day);
+  const now = new Date();
+  const isToday = (
+    now.getFullYear() === year &&
+    now.getMonth() === (month - 1) &&
+    now.getDate() === day
+  );
+
+  const titleElem = document.getElementById('day-modal-title');
+  if (titleElem) {
+    const formattedDate = dateObj.toLocaleDateString('en-US', {
+      weekday: 'long',
+      month: 'short',
+      day: 'numeric'
+    });
+    titleElem.textContent = isToday ? `Today (${formattedDate})` : formattedDate;
+  }
+
+  const subtitleElem = document.getElementById('day-modal-subtitle');
+  if (subtitleElem) {
+    subtitleElem.textContent = dateObj.toLocaleDateString('en-US', {
+      month: 'long',
+      day: 'numeric',
+      year: 'numeric'
+    });
+  }
+
+  renderCalendar(calendarMeals);
+  backdrop.style.display = 'flex';
+}
+
+export function clearSelectedDay() {
+  document.querySelectorAll('.cal-day-cell.selected').forEach(el => {
+    el.classList.remove('selected');
+  });
+}
+
+export function closeDayMealsModal() {
+  const backdrop = document.getElementById('day-meals-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+  clearSelectedDay();
+}
+
+export function backdropDayMealsClick(e) {
+  if (e.target === e.currentTarget) closeDayMealsModal();
+}
+
+export function renderDayBadgesHTML(meals = {}) {
+  const parts = [];
+  if (meals.breakfast && meals.breakfast.recipe) {
+    const name = escapeHTML(meals.breakfast.recipe.name);
+    parts.push(`<span class="cal-meal-badge badge-breakfast" title="Breakfast: ${name}">🌅 ${name}</span>`);
+  }
+  if (meals.lunch && meals.lunch.recipe) {
+    const name = escapeHTML(meals.lunch.recipe.name);
+    parts.push(`<span class="cal-meal-badge badge-lunch" title="Lunch: ${name}">☀️ ${name}</span>`);
+  }
+  if (meals.dinner && meals.dinner.recipe) {
+    const name = escapeHTML(meals.dinner.recipe.name);
+    parts.push(`<span class="cal-meal-badge badge-dinner" title="Dinner: ${name}">🌙 ${name}</span>`);
+  }
+  return parts.join('');
+}
+
+export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = {} }) {
+  const monthLabel = document.getElementById('calendar-month-label');
+  if (monthLabel) {
+    const monthDate = new Date(year, month - 1, 1);
+    monthLabel.textContent = monthDate.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+  }
+
+  const grid = document.getElementById('calendar-days-grid');
+  if (!grid) return;
+
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const firstDayOfWeek = new Date(year, month - 1, 1).getDay();
+  const prevMonthDays = new Date(year, month - 1, 0).getDate();
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  let html = '';
+
+  // Leading empty/prev-month days
+  for (let i = 0; i < firstDayOfWeek; i++) {
+    const prevDayNum = prevMonthDays - firstDayOfWeek + 1 + i;
+    html += `
+      <div class="cal-day-cell cal-day-outside">
+        <div class="cal-day-top">
+          <span class="cal-day-number">${prevDayNum}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  const dayModal = document.getElementById('day-meals-backdrop');
+  const isModalOpen = dayModal && dayModal.style.display !== 'none';
+
+  // Days of current month
+  for (let day = 1; day <= daysInMonth; day++) {
+    const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
+    const isToday = dateStr === todayStr;
+    const isSelected = isModalOpen && (dateStr === selectedDate);
+    const meals = monthMealsByDate[dateStr] || {};
+
+    let classes = 'cal-day-cell';
+    if (isToday) classes += ' today';
+    if (isSelected) classes += ' selected';
+
+    const badgesHTML = renderDayBadgesHTML(meals);
+
+    html += `
+      <div class="${classes}" id="cal-day-${dateStr}" onclick="selectCalendarDay('${dateStr}')" title="Click to view and plan meals">
+        <div class="cal-day-top">
+          <span class="cal-day-number">${day}</span>
+        </div>
+        <div class="cal-day-badges" id="cal-badges-${dateStr}">
+          ${badgesHTML}
+        </div>
+      </div>
+    `;
+  }
+
+  // Trailing days to fill the last row
+  const totalCells = firstDayOfWeek + daysInMonth;
+  const trailingCount = (7 - (totalCells % 7)) % 7;
+  for (let i = 1; i <= trailingCount; i++) {
+    html += `
+      <div class="cal-day-cell cal-day-outside">
+        <div class="cal-day-top">
+          <span class="cal-day-number">${i}</span>
+        </div>
+      </div>
+    `;
+  }
+
+  grid.innerHTML = html;
+}
+
+export function updateDayCellMeals(dateStr, meals = {}) {
+  const container = document.getElementById(`cal-badges-${dateStr}`);
+  if (container) {
+    container.innerHTML = renderDayBadgesHTML(meals);
+  }
+}
+
+export function highlightSelectedDay(dateStr) {
+  document.querySelectorAll('.cal-day-cell.selected').forEach(el => {
+    el.classList.remove('selected');
+  });
+  const cell = document.getElementById(`cal-day-${dateStr}`);
+  if (cell) {
+    cell.classList.add('selected');
+  }
+}
+
 // ── Meal Selector Modal ──────────────────────────────────────────
-export function openMealSelectorModal(mealType, recipesList = []) {
+export function openMealSelectorModal(mealType, recipesList = [], selectedDateStr = '') {
   const backdrop = document.getElementById('meal-modal-backdrop');
   if (!backdrop) return;
 
   const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
   const titleElem = document.getElementById('meal-modal-title');
-  if (titleElem) titleElem.textContent = `Assign Recipe for ${displayType}`;
+  if (titleElem) {
+    if (selectedDateStr) {
+      const [year, month, day] = selectedDateStr.split('-').map(Number);
+      const d = new Date(year, month - 1, day);
+      titleElem.textContent = `Assign Recipe for ${displayType} (${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })})`;
+    } else {
+      titleElem.textContent = `Assign Recipe for ${displayType}`;
+    }
+  }
 
   const typeInput = document.getElementById('selected-meal-type');
   if (typeInput) typeInput.value = mealType;

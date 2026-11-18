@@ -4,7 +4,10 @@ import * as View from './view.js';
 
 // ── State ─────────────────────────────────────────────────────────
 let recipes             = [];
-let calendarMeals       = {};
+let currentYear         = new Date().getFullYear();
+let currentMonth        = new Date().getMonth() + 1; // 1-12
+let selectedDate        = '';
+let monthMealsByDate    = {};
 let activeMealType      = '';
 let searchRequestId     = 0;
 let mealSearchRequestId = 0;
@@ -20,20 +23,19 @@ async function apiFetch(path, options = {}) {
   return res.json();
 }
 
-function getTodayDateString() {
-  const d = new Date();
-  const year = d.getFullYear();
-  const month = String(d.getMonth() + 1).padStart(2, '0');
-  const day = String(d.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function formatDateString(year, month, day) {
+  const y = String(year);
+  const m = String(month).padStart(2, '0');
+  const d = String(day).padStart(2, '0');
+  return `${y}-${m}-${d}`;
 }
 
-function formatDate(date) {
-  const year = date.getFullYear();
-  const month = String(date.getMonth() + 1).padStart(2, '0');
-  const day = String(date.getDate()).padStart(2, '0');
-  return `${year}-${month}-${day}`;
+function getTodayDateString() {
+  const d = new Date();
+  return formatDateString(d.getFullYear(), d.getMonth() + 1, d.getDate());
 }
+
+selectedDate = getTodayDateString();
 
 // ── Load recipes ──────────────────────────────────────────────────
 async function loadRecipes() {
@@ -52,24 +54,36 @@ async function loadRecipes() {
 }
 
 // ── Load calendar ─────────────────────────────────────────────────
-async function loadCalendar() {
+async function loadCalendar(year = currentYear, month = currentMonth) {
   try {
-    const today = getTodayDateString();
-    const data = await apiFetch(`/api/calendar?start=${today}&days=1`);
-    calendarMeals = {};
-    if (data && Array.isArray(data.days) && data.days.length > 0) {
-      const todayDay = data.days[0];
-      if (Array.isArray(todayDay.meals)) {
-        todayDay.meals.forEach(m => {
-          calendarMeals[m.meal_type] = m;
-        });
-      }
-    } else if (data && Array.isArray(data.meals)) {
-      data.meals.forEach(m => {
-        calendarMeals[m.meal_type] = m;
+    currentYear = year;
+    currentMonth = month;
+    const daysCount = new Date(year, month, 0).getDate();
+    const startDate = formatDateString(year, month, 1);
+    const data = await apiFetch(`/api/calendar?start=${startDate}&days=${daysCount}`);
+
+    monthMealsByDate = {};
+    if (data && Array.isArray(data.days)) {
+      data.days.forEach(day => {
+        const mealsMap = {};
+        if (Array.isArray(day.meals)) {
+          day.meals.forEach(m => {
+            mealsMap[m.meal_type] = m;
+          });
+        }
+        monthMealsByDate[day.date] = mealsMap;
       });
     }
-    View.renderCalendar(calendarMeals);
+
+    View.renderMonthGrid({
+      year: currentYear,
+      month: currentMonth,
+      selectedDate,
+      monthMealsByDate
+    });
+
+    const selectedDayMeals = monthMealsByDate[selectedDate] || {};
+    View.renderCalendar(selectedDayMeals);
   } catch (err) {
     View.showToast('Could not load calendar: ' + err.message);
   }
@@ -200,16 +214,7 @@ function navigateTo(page) {
   });
 
   if (!isRecipes) {
-    const dateElem = document.getElementById('calendar-date');
-    if (dateElem) {
-      dateElem.textContent = new Date().toLocaleDateString('en-US', {
-        weekday: 'long',
-        month: 'long',
-        day: 'numeric',
-        year: 'numeric'
-      });
-    }
-    loadCalendar();
+    loadCalendar(currentYear, currentMonth);
   }
 
   window.scrollTo(0, 0);
@@ -223,6 +228,36 @@ function showRecipes() {
   navigateTo('recipes');
 }
 
+// ── Calendar date & month controls ────────────────────────────────
+function changeMonth(delta) {
+  let newMonth = currentMonth + delta;
+  let newYear = currentYear;
+  if (newMonth > 12) {
+    newMonth = 1;
+    newYear++;
+  } else if (newMonth < 1) {
+    newMonth = 12;
+    newYear--;
+  }
+  loadCalendar(newYear, newMonth);
+}
+
+async function goToToday() {
+  const now = new Date();
+  selectedDate = getTodayDateString();
+  await loadCalendar(now.getFullYear(), now.getMonth() + 1);
+  View.highlightSelectedDay(selectedDate);
+  const todayMeals = monthMealsByDate[selectedDate] || {};
+  View.openDayMealsModal(selectedDate, todayMeals);
+}
+
+function selectCalendarDay(dateStr) {
+  selectedDate = dateStr;
+  View.highlightSelectedDay(dateStr);
+  const selectedDayMeals = monthMealsByDate[selectedDate] || {};
+  View.openDayMealsModal(selectedDate, selectedDayMeals);
+}
+
 // ── Calendar meal selector & assignment ───────────────────────────
 async function openMealSelector(mealType) {
   activeMealType = mealType;
@@ -234,7 +269,7 @@ async function openMealSelector(mealType) {
       // Continue with empty list if fails
     }
   }
-  View.openMealSelectorModal(mealType, recipes);
+  View.openMealSelectorModal(mealType, recipes, selectedDate);
 }
 
 async function handleMealRecipeSearch(val) {
@@ -262,7 +297,7 @@ async function selectRecipeForMeal(recipeId) {
   if (!mealType) return;
 
   const payload = {
-    date: getTodayDateString(),
+    date: selectedDate,
     meal_type: mealType,
     recipe_id: Number(recipeId),
   };
@@ -273,9 +308,16 @@ async function selectRecipeForMeal(recipeId) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(payload),
     });
-    calendarMeals[mealType] = updated;
+
+    if (!monthMealsByDate[selectedDate]) {
+      monthMealsByDate[selectedDate] = {};
+    }
+    monthMealsByDate[selectedDate][mealType] = updated;
+
     View.closeMealModal();
-    View.renderCalendar(calendarMeals);
+    View.renderCalendar(monthMealsByDate[selectedDate]);
+    View.updateDayCellMeals(selectedDate, monthMealsByDate[selectedDate]);
+
     const recipeName = (updated && updated.recipe && updated.recipe.name) ? updated.recipe.name : 'Recipe';
     const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
     View.showToast(`"${recipeName}" assigned to ${displayType}!`);
@@ -285,13 +327,18 @@ async function selectRecipeForMeal(recipeId) {
 }
 
 async function removeMeal(mealType) {
-  const today = getTodayDateString();
   try {
-    await apiFetch(`/api/calendar/meals?date=${today}&meal_type=${mealType}`, {
+    await apiFetch(`/api/calendar/meals?date=${selectedDate}&meal_type=${mealType}`, {
       method: 'DELETE',
     });
-    delete calendarMeals[mealType];
-    View.renderCalendar(calendarMeals);
+
+    if (monthMealsByDate[selectedDate]) {
+      delete monthMealsByDate[selectedDate][mealType];
+    }
+
+    View.renderCalendar(monthMealsByDate[selectedDate] || {});
+    View.updateDayCellMeals(selectedDate, monthMealsByDate[selectedDate] || {});
+
     const displayType = mealType.charAt(0).toUpperCase() + mealType.slice(1);
     View.showToast(`Removed recipe from ${displayType}.`);
   } catch (err) {
@@ -311,7 +358,7 @@ Object.assign(window, {
   openEditModal: (id) => View.openEditModal(id, recipes),
   removeRecipe,
   editFromDetail,
-  openDetailModal: (id) => View.openDetailModal(id, recipes, calendarMeals),
+  openDetailModal: (id) => View.openDetailModal(id, recipes, monthMealsByDate[selectedDate] || {}),
   closeDetailModal: View.closeDetailModal,
   backdropClick: View.backdropClick,
   backdropDetailClick: View.backdropDetailClick,
@@ -321,14 +368,35 @@ Object.assign(window, {
   selectRecipeForMeal,
   removeMeal,
   closeMealModal: View.closeMealModal,
+  changeMonth,
+  goToToday,
+  selectCalendarDay,
+  closeDayMealsModal: View.closeDayMealsModal,
+  backdropDayMealsClick: View.backdropDayMealsClick,
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
-    View.closeModal();
-    View.closeDetailModal();
-    View.closeMealModal();
+    const mealModal = document.getElementById('meal-modal-backdrop');
+    if (mealModal && mealModal.style.display !== 'none') {
+      View.closeMealModal();
+      return;
+    }
+    const detailModal = document.getElementById('detail-backdrop');
+    if (detailModal && detailModal.style.display !== 'none') {
+      View.closeDetailModal();
+      return;
+    }
+    const recipeModal = document.getElementById('modal-backdrop');
+    if (recipeModal && recipeModal.style.display !== 'none') {
+      View.closeModal();
+      return;
+    }
+    const dayModal = document.getElementById('day-meals-backdrop');
+    if (dayModal && dayModal.style.display !== 'none') {
+      View.closeDayMealsModal();
+    }
   }
 });
 
