@@ -11,21 +11,57 @@ import (
 )
 
 type API struct {
-	store *SQLiteRepository
+	store    *SQLiteRepository
+	importer RecipeParser
 }
 
 func NewAPI(store *SQLiteRepository) http.Handler {
-	api := &API{store: store}
+	return NewAPIWithImporter(store, NewOllamaImporter("", "", nil))
+}
+
+func NewAPIWithImporter(store *SQLiteRepository, importer RecipeParser) http.Handler {
+	api := &API{store: store, importer: importer}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
 	mux.HandleFunc("GET /api/recipes/search", api.searchRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
+	mux.HandleFunc("POST /api/recipes/import-url", api.importRecipeFromURL)
 	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
 	mux.HandleFunc("GET /api/calendar", api.getCalendar)
 	mux.HandleFunc("POST /api/calendar/meals", api.assignCalendarMeal)
 	mux.HandleFunc("DELETE /api/calendar/meals", api.removeCalendarMeal)
 	return cors(mux)
+}
+
+type importURLRequest struct {
+	URL string `json:"url"`
+}
+
+func (api *API) importRecipeFromURL(w http.ResponseWriter, r *http.Request) {
+	var req importURLRequest
+	decoder := json.NewDecoder(r.Body)
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "invalid request JSON: expected {\"url\": \"...\"}")
+		return
+	}
+	if strings.TrimSpace(req.URL) == "" {
+		writeError(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	if api.importer == nil {
+		writeError(w, http.StatusInternalServerError, "recipe importer is not configured")
+		return
+	}
+
+	recipe, err := api.importer.ImportRecipeFromURL(r.Context(), req.URL)
+	if err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+
+	writeJSON(w, http.StatusOK, recipe)
 }
 
 func (api *API) getCalendar(w http.ResponseWriter, r *http.Request) {

@@ -157,6 +157,23 @@ body {
   align-items: center;
   justify-content: space-between;
   margin-bottom: 1.75rem;
+  flex-wrap: wrap;
+  gap: 1rem;
+}
+.header-actions {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+}
+.btn-import {
+  display: inline-flex;
+  align-items: center;
+  gap: .45rem;
+  color: #333;
+}
+.btn-import:hover {
+  background: #f0f0f0;
+  border-color: #bbb;
 }
 .page-title {
   font-size: 1.75rem;
@@ -826,3 +843,53 @@ body {
     grid-template-columns: 1fr;
   }
 }
+
+/* ═══════════════════════════════════════
+   IMPORT RECIPE MODAL & STATUS
+═══════════════════════════════════════ */
+.import-help-text {
+  font-size: 0.82rem;
+  color: #666;
+  margin-top: 0.4rem;
+  line-height: 1.4;
+}
+
+.import-status {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  background: #f0fdf4;
+  border: 1px solid #bbf7d0;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #166534;
+}
+
+.spinner {
+  width: 18px;
+  height: 18px;
+  border: 2px solid #bbf7d0;
+  border-top-color: #166534;
+  border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  flex-shrink: 0;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.import-error {
+  margin-top: 1rem;
+  padding: 0.75rem 0.9rem;
+  background: #fef2f2;
+  border: 1px solid #fecaca;
+  border-radius: 8px;
+  font-size: 0.85rem;
+  color: #991b1b;
+  line-height: 1.4;
+  word-break: break-word;
+}
+

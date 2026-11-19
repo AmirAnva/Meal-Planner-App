@@ -370,6 +370,95 @@ export function closeModal() {
   document.getElementById('f-instructions').value = '';
 }
 
+export function populateRecipeForm(recipe) {
+  document.getElementById('modal-title').textContent = 'Review & Save Imported Recipe';
+  document.getElementById('modal-backdrop').style.display = 'flex';
+  document.getElementById('modal-edit-id').value = '';
+  document.getElementById('f-name').value = recipe.name || '';
+  document.getElementById('f-ingredients').value = (recipe.ingredients || []).join('\n');
+  document.getElementById('f-instructions').value = (recipe.instructions || []).join('\n');
+  document.getElementById('f-name').focus();
+}
+
+// ── Import from Link modal ───────────────────────────────────────
+export function openImportModal() {
+  const backdrop = document.getElementById('import-modal-backdrop');
+  if (!backdrop) return;
+  backdrop.style.display = 'flex';
+  const urlInput = document.getElementById('import-url-input');
+  if (urlInput) {
+    urlInput.value = '';
+    urlInput.disabled = false;
+    urlInput.focus();
+  }
+  const errorEl = document.getElementById('import-error');
+  if (errorEl) {
+    errorEl.style.display = 'none';
+    errorEl.textContent = '';
+  }
+  const statusEl = document.getElementById('import-status');
+  if (statusEl) statusEl.style.display = 'none';
+  const submitBtn = document.getElementById('btn-import-submit');
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+  }
+}
+
+export function closeImportModal() {
+  const backdrop = document.getElementById('import-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+export function backdropImportClick(e) {
+  if (e.target === e.currentTarget) closeImportModal();
+}
+
+export function setImportLoading(isLoading, message = 'Fetching page and extracting recipe with Qwen...') {
+  const statusEl = document.getElementById('import-status');
+  const textEl = document.getElementById('import-status-text');
+  const errorEl = document.getElementById('import-error');
+  const input = document.getElementById('import-url-input');
+  const submitBtn = document.getElementById('btn-import-submit');
+
+  if (errorEl) errorEl.style.display = 'none';
+
+  if (isLoading) {
+    if (statusEl) statusEl.style.display = 'flex';
+    if (textEl) textEl.textContent = message;
+    if (input) input.disabled = true;
+    if (submitBtn) {
+      submitBtn.disabled = true;
+      submitBtn.style.opacity = '0.6';
+    }
+  } else {
+    if (statusEl) statusEl.style.display = 'none';
+    if (input) input.disabled = false;
+    if (submitBtn) {
+      submitBtn.disabled = false;
+      submitBtn.style.opacity = '1';
+    }
+  }
+}
+
+export function showImportError(errMsg) {
+  const errorEl = document.getElementById('import-error');
+  const statusEl = document.getElementById('import-status');
+  const input = document.getElementById('import-url-input');
+  const submitBtn = document.getElementById('btn-import-submit');
+
+  if (statusEl) statusEl.style.display = 'none';
+  if (input) input.disabled = false;
+  if (submitBtn) {
+    submitBtn.disabled = false;
+    submitBtn.style.opacity = '1';
+  }
+  if (errorEl) {
+    errorEl.textContent = errMsg;
+    errorEl.style.display = 'block';
+  }
+}
+
 export function backdropClick(e) {
   if (e.target === e.currentTarget) closeModal();
 }
