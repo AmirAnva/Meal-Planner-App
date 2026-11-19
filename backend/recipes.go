@@ -16,6 +16,34 @@ type Recipe struct {
 	Instructions []string `json:"instructions"`
 }
 
+// Ingredient is a reusable ingredient identity shared across recipes, pantry,
+// and grocery items.
+type Ingredient struct {
+	ID   int    `json:"id"`
+	Name string `json:"name"`
+}
+type RecipeIngredient struct {
+	RecipeID     int        `json:"recipe_id"`
+	IngredientID int        `json:"ingredient_id"`
+	Ingredient   Ingredient `json:"ingredient,omitempty"`
+	Quantity     *float64   `json:"quantity"`
+	Unit         *string    `json:"unit"`
+}
+type GroceryItem struct {
+	ID           int      `json:"id"`
+	IngredientID *int     `json:"ingredient_id"`
+	Name         *string  `json:"name"`
+	Quantity     *float64 `json:"quantity"`
+	Unit         *string  `json:"unit"`
+	Purchased    bool     `json:"purchased"`
+}
+type PantryItem struct {
+	IngredientID int        `json:"ingredient_id"`
+	Ingredient   Ingredient `json:"ingredient,omitempty"`
+	Quantity     float64    `json:"quantity"`
+	Unit         *string    `json:"unit"`
+}
+
 func (r Recipe) Validate() error {
 	if strings.TrimSpace(r.Name) == "" {
 		return ErrRecipeNameRequired
