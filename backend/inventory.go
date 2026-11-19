@@ -8,18 +8,6 @@ import (
 	"strings"
 )
 
-func (r *SQLiteRepository) syncRecipeIngredients(recipeID int, names []string) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-	if err := syncRecipeIngredientsTx(tx, recipeID, names); err != nil {
-		return err
-	}
-	return tx.Commit()
-}
-
 func syncRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
 	var exists int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM recipes WHERE recipe_id=?`, recipeID).Scan(&exists); err != nil {
