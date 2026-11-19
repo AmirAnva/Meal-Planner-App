@@ -2,7 +2,9 @@ package main
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 )
 
@@ -12,6 +14,21 @@ func (r *SQLiteRepository) syncRecipeIngredients(recipeID int, names []string) e
 		return err
 	}
 	defer tx.Rollback()
+	if err := syncRecipeIngredientsTx(tx, recipeID, names); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func syncRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
+	var exists int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM recipes WHERE recipe_id=?`, recipeID).Scan(&exists); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrRecipeNotFound
+	}
+	var err error
 	for _, name := range names {
 		name = strings.TrimSpace(name)
 		if name == "" {
@@ -58,7 +75,7 @@ func (r *SQLiteRepository) syncRecipeIngredients(recipeID int, names []string) e
 			}
 		}
 	}
-	return tx.Commit()
+	return nil
 }
 
 func (r *SQLiteRepository) CreateIngredient(v Ingredient) (Ingredient, error) {
@@ -106,7 +123,14 @@ func (r *SQLiteRepository) UpdateIngredient(v Ingredient) (Ingredient, error) {
 	return v, e
 }
 func (r *SQLiteRepository) DeleteIngredient(id int) error {
-	_, e := r.db.Exec(`DELETE FROM ingredients WHERE ingredient_id=?`, id)
+	res, e := r.db.Exec(`DELETE FROM ingredients WHERE ingredient_id=?`, id)
+	if e != nil {
+		return e
+	}
+	n, e := res.RowsAffected()
+	if e == nil && n == 0 {
+		e = sql.ErrNoRows
+	}
 	return e
 }
 
@@ -116,6 +140,13 @@ func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngr
 		return e
 	}
 	defer tx.Rollback()
+	var exists int
+	if e = tx.QueryRow(`SELECT COUNT(*) FROM recipes WHERE recipe_id=?`, recipeID).Scan(&exists); e != nil {
+		return e
+	}
+	if exists == 0 {
+		return ErrRecipeNotFound
+	}
 	if _, e = tx.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id=?`, recipeID); e != nil {
 		return e
 	}
@@ -123,6 +154,31 @@ func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngr
 		if _, e = tx.Exec(`INSERT INTO recipe_ingredients(recipe_id,ingredient_id,quantity,unit) VALUES(?,?,?,?)`, recipeID, v.IngredientID, v.Quantity, v.Unit); e != nil {
 			return e
 		}
+	}
+	rows, e := tx.Query(`SELECT i.name FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE ri.recipe_id=? ORDER BY ri.ingredient_id`, recipeID)
+	if e != nil {
+		return e
+	}
+	names := []string{}
+	for rows.Next() {
+		var name string
+		if e = rows.Scan(&name); e != nil {
+			rows.Close()
+			return e
+		}
+		names = append(names, name)
+	}
+	if e = rows.Err(); e != nil {
+		rows.Close()
+		return e
+	}
+	rows.Close()
+	encoded, e := json.Marshal(names)
+	if e != nil {
+		return e
+	}
+	if _, e = tx.Exec(`UPDATE recipes SET ingredients=? WHERE recipe_id=?`, string(encoded), recipeID); e != nil {
+		return e
 	}
 	return tx.Commit()
 }
@@ -153,6 +209,20 @@ func (r *SQLiteRepository) ListRecipeIngredients(recipeID int) ([]RecipeIngredie
 }
 
 func (r *SQLiteRepository) PutPantryItem(v PantryItem) error {
+	if v.IngredientID <= 0 {
+		return errors.New("ingredient id must be positive")
+	}
+	if math.IsNaN(v.Quantity) || math.IsInf(v.Quantity, 0) || v.Quantity < 0 {
+		return errors.New("pantry quantity must be a finite non-negative number")
+	}
+	if v.Unit != nil {
+		s := strings.TrimSpace(*v.Unit)
+		if s == "" {
+			v.Unit = nil
+		} else {
+			v.Unit = &s
+		}
+	}
 	_, e := r.db.Exec(`INSERT INTO pantry_items(ingredient_id,quantity,unit) VALUES(?,?,?) ON CONFLICT(ingredient_id) DO UPDATE SET quantity=excluded.quantity,unit=excluded.unit`, v.IngredientID, v.Quantity, v.Unit)
 	return e
 }
@@ -178,11 +248,54 @@ func (r *SQLiteRepository) ListPantryItems() ([]PantryItem, error) {
 	return out, rows.Err()
 }
 func (r *SQLiteRepository) DeletePantryItem(id int) error {
-	_, e := r.db.Exec(`DELETE FROM pantry_items WHERE ingredient_id=?`, id)
+	res, e := r.db.Exec(`DELETE FROM pantry_items WHERE ingredient_id=?`, id)
+	if e != nil {
+		return e
+	}
+	n, e := res.RowsAffected()
+	if e == nil && n == 0 {
+		e = sql.ErrNoRows
+	}
 	return e
 }
 
+func normalizeGroceryItem(v GroceryItem) (GroceryItem, error) {
+	if v.ID < 0 {
+		return GroceryItem{}, errors.New("grocery item id must not be negative")
+	}
+	if v.IngredientID != nil && *v.IngredientID <= 0 {
+		return GroceryItem{}, errors.New("ingredient id must be positive")
+	}
+	if (v.IngredientID == nil) && (v.Name == nil || strings.TrimSpace(*v.Name) == "") {
+		return GroceryItem{}, errors.New("grocery item requires an ingredient or name")
+	}
+	if v.Quantity != nil && (math.IsNaN(*v.Quantity) || math.IsInf(*v.Quantity, 0) || *v.Quantity < 0) {
+		return GroceryItem{}, errors.New("grocery quantity must be a finite non-negative number")
+	}
+	if v.Name != nil {
+		s := strings.TrimSpace(*v.Name)
+		if s == "" {
+			v.Name = nil
+		} else {
+			v.Name = &s
+		}
+	}
+	if v.Unit != nil {
+		s := strings.TrimSpace(*v.Unit)
+		if s == "" {
+			v.Unit = nil
+		} else {
+			v.Unit = &s
+		}
+	}
+	return v, nil
+}
+
 func (r *SQLiteRepository) CreateGroceryItem(v GroceryItem) (GroceryItem, error) {
+	var err error
+	if v, err = normalizeGroceryItem(v); err != nil {
+		return GroceryItem{}, err
+	}
 	res, e := r.db.Exec(`INSERT INTO grocery_items(ingredient_id,name,quantity,unit,purchased) VALUES(?,?,?,?,?)`, v.IngredientID, v.Name, v.Quantity, v.Unit, v.Purchased)
 	if e != nil {
 		return GroceryItem{}, e
@@ -225,8 +338,23 @@ func (r *SQLiteRepository) ListGroceryItems() ([]GroceryItem, error) {
 	}
 	return out, rows.Err()
 }
-func (r *SQLiteRepository) UpdateGroceryItem(v GroceryItem) error {
+func (r *SQLiteRepository) UpdateGroceryItem(v GroceryItem) (GroceryItem, error) {
+	var err error
+	if v, err = normalizeGroceryItem(v); err != nil {
+		return GroceryItem{}, err
+	}
 	res, e := r.db.Exec(`UPDATE grocery_items SET ingredient_id=?,name=?,quantity=?,unit=?,purchased=? WHERE grocery_item_id=?`, v.IngredientID, v.Name, v.Quantity, v.Unit, v.Purchased, v.ID)
+	if e != nil {
+		return GroceryItem{}, e
+	}
+	n, e := res.RowsAffected()
+	if e == nil && n == 0 {
+		e = sql.ErrNoRows
+	}
+	return v, e
+}
+func (r *SQLiteRepository) DeleteGroceryItem(id int) error {
+	res, e := r.db.Exec(`DELETE FROM grocery_items WHERE grocery_item_id=?`, id)
 	if e != nil {
 		return e
 	}
@@ -234,9 +362,5 @@ func (r *SQLiteRepository) UpdateGroceryItem(v GroceryItem) error {
 	if e == nil && n == 0 {
 		e = sql.ErrNoRows
 	}
-	return e
-}
-func (r *SQLiteRepository) DeleteGroceryItem(id int) error {
-	_, e := r.db.Exec(`DELETE FROM grocery_items WHERE grocery_item_id=?`, id)
 	return e
 }
