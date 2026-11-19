@@ -123,6 +123,21 @@ func (r *SQLiteRepository) DeleteIngredient(id int) error {
 }
 
 func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngredient) error {
+	if recipeID <= 0 {
+		return errors.New("recipe id must be positive")
+	}
+	for i := range items {
+		if err := items[i].Validate(); err != nil {
+			return err
+		}
+		if items[i].RecipeID != recipeID {
+			return errors.New("recipe ingredient recipe id does not match target recipe")
+		}
+		if items[i].Unit != nil {
+			unit := strings.TrimSpace(*items[i].Unit)
+			items[i].Unit = &unit
+		}
+	}
 	tx, e := r.db.Begin()
 	if e != nil {
 		return e

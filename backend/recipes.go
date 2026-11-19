@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"math"
 	"strings"
 )
 
@@ -29,6 +30,23 @@ type RecipeIngredient struct {
 	Quantity     *float64   `json:"quantity"`
 	Unit         *string    `json:"unit"`
 }
+
+func (v RecipeIngredient) Validate() error {
+	if v.RecipeID <= 0 {
+		return errors.New("recipe id must be positive")
+	}
+	if v.IngredientID <= 0 {
+		return errors.New("ingredient id must be positive")
+	}
+	if v.Quantity != nil && (math.IsNaN(*v.Quantity) || math.IsInf(*v.Quantity, 0) || *v.Quantity < 0) {
+		return errors.New("recipe ingredient quantity must be a finite non-negative number")
+	}
+	if v.Unit != nil && strings.TrimSpace(*v.Unit) == "" {
+		return errors.New("recipe ingredient unit must not be empty")
+	}
+	return nil
+}
+
 type GroceryItem struct {
 	ID           int      `json:"id"`
 	IngredientID *int     `json:"ingredient_id"`
