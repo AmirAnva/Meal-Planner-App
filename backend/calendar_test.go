@@ -1,5 +1,6 @@
 package main
 
+// Coverage for calendar meal assignment and replacement behavior.
 import (
 	"encoding/json"
 	"net/http"
