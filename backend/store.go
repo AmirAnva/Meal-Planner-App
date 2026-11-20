@@ -70,8 +70,96 @@ CREATE TABLE IF NOT EXISTS meals (
   recipe_id INTEGER NOT NULL REFERENCES recipes(recipe_id) ON DELETE CASCADE,
   meal_type TEXT NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner')),
   UNIQUE(day_id, meal_type)
-);`)
-	return err
+);
+CREATE TABLE IF NOT EXISTS ingredients (
+ ingredient_id INTEGER PRIMARY KEY,
+ name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS recipe_ingredients (
+ recipe_id INTEGER NOT NULL REFERENCES recipes(recipe_id) ON DELETE CASCADE,
+ ingredient_id INTEGER NOT NULL REFERENCES ingredients(ingredient_id),
+ quantity REAL,
+ unit TEXT,
+ PRIMARY KEY (recipe_id, ingredient_id)
+);
+CREATE TABLE IF NOT EXISTS grocery_items (
+ grocery_item_id INTEGER PRIMARY KEY,
+ ingredient_id INTEGER REFERENCES ingredients(ingredient_id),
+ name TEXT,
+ quantity REAL,
+ unit TEXT,
+ purchased INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS pantry_items (
+ ingredient_id INTEGER PRIMARY KEY REFERENCES ingredients(ingredient_id),
+ quantity REAL NOT NULL DEFAULT 0,
+ unit TEXT
+);
+CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
+	if err != nil {
+		return err
+	}
+	var migrated int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=1`).Scan(&migrated); err != nil {
+		return err
+	}
+	if migrated != 0 {
+		return nil
+	}
+	// Legacy recipe JSON is imported once. After this migration, recipe_ingredients
+	// is authoritative and recipes.ingredients is maintained as a compatibility view.
+	rows, err := db.Query(`SELECT recipe_id, ingredients FROM recipes`)
+	if err != nil {
+		return err
+	}
+	type legacyRecipe struct {
+		id    int
+		names []string
+	}
+	var legacy []legacyRecipe
+	for rows.Next() {
+		var item legacyRecipe
+		var raw string
+		if err := rows.Scan(&item.id, &raw); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := json.Unmarshal([]byte(raw), &item.names); err != nil {
+			rows.Close()
+			return fmt.Errorf("decode legacy recipe ingredients: %w", err)
+		}
+		legacy = append(legacy, item)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, recipe := range legacy {
+		for _, name := range recipe.names {
+			name = strings.TrimSpace(name)
+			if name == "" {
+				continue
+			}
+			if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+				return err
+			}
+			if _, err := tx.Exec(`INSERT OR IGNORE INTO recipe_ingredients(recipe_id, ingredient_id) SELECT ?, ingredient_id FROM ingredients WHERE name=?`, recipe.id, name); err != nil {
+				return err
+			}
+		}
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func (r *SQLiteRepository) Close() error { return r.db.Close() }
@@ -94,13 +182,24 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
+	tx, err := r.db.Begin()
+	if err != nil {
+		return Recipe{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
 	if err != nil {
 		return Recipe{}, err
 	}
 	id, err := result.LastInsertId()
+	if err != nil {
+		return Recipe{}, err
+	}
 	recipe.ID = int(id)
-	return recipe, err
+	if err = syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
+		return Recipe{}, err
+	}
+	return recipe, tx.Commit()
 }
 
 func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
@@ -146,7 +245,12 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
+	tx, err := r.db.Begin()
+	if err != nil {
+		return Recipe{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -157,8 +261,11 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if count == 0 {
 		return Recipe{}, ErrRecipeNotFound
 	}
+	if err := syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
+		return Recipe{}, err
+	}
 	recipe.Name = strings.TrimSpace(recipe.Name)
-	return recipe, nil
+	return recipe, tx.Commit()
 }
 
 func (r *SQLiteRepository) DeleteRecipe(id int) error {
