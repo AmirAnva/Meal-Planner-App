@@ -11,7 +11,7 @@ The application uses a decoupled client-server architecture:
 - **Recipe CRUD:** Create, view, update (`PUT`), and delete recipes.
 - **Search & Filtering:** Search recipes by title or ingredients in real time with client-side race-condition avoidance.
 - **Recipe Details:** Modal view displaying full ingredients list and step-by-step instructions.
-- **Daily Meal Planning:** Assign recipes to `breakfast`, `lunch`, or `dinner` slots for any day, view assigned meals, and remove assignments.
+- **Daily Meal Planning & Calendar:** Monthly grid meal planning with client-side race-condition avoidance (`AbortController` & request IDs), text wrapping, and tile size bounding across all views.
 - **Persistent Storage:** SQLite database with foreign keys and cascade deletions.
 
 ## 3. Backend API

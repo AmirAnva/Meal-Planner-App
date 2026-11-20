@@ -249,6 +249,8 @@ body {
   color: #1a1a1a;
   margin-bottom: .4rem;
   line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 .card-meta {
   font-size: .85rem;
@@ -279,6 +281,11 @@ body {
   justify-content: center;
   z-index: 500;
   backdrop-filter: blur(2px);
+}
+
+#meal-modal-backdrop,
+#detail-backdrop {
+  z-index: 600;
 }
 .modal {
   background: #fff;
@@ -441,48 +448,310 @@ body {
 /* ═══════════════════════════════════════
    CALENDAR PAGE
 ═══════════════════════════════════════ */
-.meal-grid {
-  display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 1.5rem;
-  margin-top: 2rem;
+.calendar-header-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 1rem;
 }
 
-.meal-slot {
+.calendar-subtitle {
+  color: #666;
+  font-size: 0.95rem;
+  margin-top: 0.25rem;
+}
+
+.calendar-nav-controls {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+  background: white;
+  padding: 0.35rem 0.6rem;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.03);
+}
+
+.btn-cal-nav {
+  width: 32px;
+  height: 32px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: #f5f5f5;
+  border: 1px solid #e0e0e0;
+  border-radius: 6px;
+  cursor: pointer;
+  color: #444;
+  transition: background 0.15s, border-color 0.15s;
+}
+
+.btn-cal-nav:hover {
+  background: #e8e8e8;
+  color: #111;
+}
+
+.calendar-current-month {
+  font-size: 1rem;
+  font-weight: 700;
+  min-width: 140px;
+  text-align: center;
+  color: #1a1a1a;
+  user-select: none;
+}
+
+.btn-cal-today {
+  padding: 0.35rem 0.75rem;
+  font-size: 0.82rem;
+  font-weight: 600;
+  background: #eaf6ea;
+  border: 1px solid #c8e6c9;
+  color: #2e7d32;
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.btn-cal-today:hover {
+  background: #2e7d32;
+  color: white;
+}
+
+/* Month Card & Weekdays */
+.calendar-card {
   background: white;
   border: 1px solid #e8e8e8;
   border-radius: 12px;
-  padding: 1.5rem;
+  padding: 1.25rem;
+  margin-top: 1.25rem;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.03);
+}
+
+.calendar-weekdays {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  text-align: center;
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #777;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding-bottom: 0.65rem;
+  border-bottom: 1px solid #f0f0f0;
+}
+
+.calendar-days-grid {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 8px;
+  padding-top: 0.75rem;
+}
+
+.cal-day-cell {
+  min-height: 94px;
+  min-width: 0;
+  max-width: 100%;
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 8px;
+  padding: 6px 8px;
+  cursor: pointer;
   display: flex;
   flex-direction: column;
+  transition: all 0.15s ease;
+  user-select: none;
+  overflow: hidden;
+}
+
+.cal-day-cell:hover:not(.cal-day-outside) {
+  background: #f0fdf4;
+  border-color: #a7f3d0;
+  transform: translateY(-1px);
+}
+
+.cal-day-cell.selected {
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 2px rgba(46, 125, 50, 0.28);
+  background: #ffffff;
+}
+
+.cal-day-cell.cal-day-outside {
+  opacity: 0.35;
+  background: #f9f9f9;
+  cursor: default;
+}
+
+.cal-day-top {
+  display: flex;
   justify-content: space-between;
-  min-height: 190px;
-  box-shadow: 0 2px 8px rgba(0,0,0,.03);
-  transition: box-shadow .2s;
+  align-items: center;
+  margin-bottom: 4px;
 }
 
-.meal-slot:hover {
-  box-shadow: 0 4px 14px rgba(0,0,0,.06);
+.cal-day-number {
+  font-size: 0.85rem;
+  font-weight: 600;
+  color: #333;
 }
 
-.meal-slot h2 {
-  font-size: 1.15rem;
+.cal-day-cell.today .cal-day-number {
+  background: #2e7d32;
+  color: white;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 0.8rem;
+}
+
+.cal-day-badges {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  overflow: hidden;
+  margin-top: 2px;
+  min-width: 0;
+}
+
+.cal-meal-badge {
+  font-size: 0.7rem;
+  font-weight: 500;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.25;
+  display: block;
+  min-width: 0;
+}
+
+.badge-breakfast {
+  background: #fef3c7;
+  color: #92400e;
+  border-left: 2px solid #f59e0b;
+}
+
+.badge-lunch {
+  background: #dbeafe;
+  color: #1e40af;
+  border-left: 2px solid #3b82f6;
+}
+
+.badge-dinner {
+  background: #f3e8ff;
+  color: #6b21a8;
+  border-left: 2px solid #a855f7;
+}
+
+/* ═══════════════════════════════════════
+   DAY MEALS MODAL
+═══════════════════════════════════════ */
+.modal-day-meals {
+  width: min(560px, 94vw);
+}
+
+.day-modal-subtitle {
+  font-size: 0.82rem;
+  color: #777;
+  font-weight: 500;
+  display: block;
+  margin-top: 0.15rem;
+}
+
+.day-meals-body {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+  padding: 1.25rem 1.4rem;
+}
+
+.day-meal-card {
+  background: #fafafa;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+  padding: 1rem 1.15rem;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  transition: border-color 0.15s, background 0.15s;
+}
+
+.day-meal-card:hover {
+  background: #fcfcfc;
+  border-color: #d8d8d8;
+}
+
+.day-meal-header {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.85rem;
+  flex: 1;
+  min-width: 0;
+}
+
+.day-meal-icon {
+  font-size: 1.5rem;
+  line-height: 1;
+  flex-shrink: 0;
+  margin-top: 2px;
+}
+
+.day-meal-info {
+  flex: 1;
+  min-width: 0;
+}
+
+.day-meal-name {
+  font-size: 0.82rem;
   font-weight: 700;
-  margin-bottom: 0.85rem;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #888;
+  margin-bottom: 0.25rem;
 }
 
-.meal-recipe-assigned {
-  margin-bottom: 1.25rem;
+.day-meal-assigned {
+  overflow: hidden;
+  min-width: 0;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+.meal-empty-text {
+  color: #999;
+  font-size: 0.92rem;
+  font-style: italic;
+  margin: 0;
+}
+
+.day-meal-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-shrink: 0;
+}
+
+.btn-sm {
+  padding: 0.4rem 0.85rem;
+  font-size: 0.85rem;
 }
 
 .meal-recipe-title {
-  font-size: 1.05rem;
+  font-size: 1.02rem;
   font-weight: 700;
   color: #2e7d32;
   cursor: pointer;
   display: inline-block;
-  margin-bottom: 0.25rem;
+  margin-bottom: 0.2rem;
   line-height: 1.3;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .meal-recipe-title:hover {
@@ -495,18 +764,15 @@ body {
   color: #666;
 }
 
-.meal-slot-actions {
-  display: flex;
-  gap: 0.5rem;
-  align-items: center;
-  flex-wrap: wrap;
-  margin-top: auto;
-}
-
-#calendar-date {
-  margin-top: .4rem;
-  color: #777;
-  font-size: 0.95rem;
+@media (max-width: 580px) {
+  .day-meal-card {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 0.75rem;
+  }
+  .day-meal-actions {
+    justify-content: flex-end;
+  }
 }
 
 /* ═══════════════════════════════════════
@@ -552,9 +818,8 @@ body {
   font-size: 0.95rem;
   font-weight: 600;
   color: #1a1a1a;
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
+  overflow-wrap: break-word;
+  word-break: break-word;
 }
 
 .meal-picker-item-meta {

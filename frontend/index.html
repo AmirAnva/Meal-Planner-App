@@ -80,53 +80,117 @@
 
   <main class="page-content" id="calendar-view" style="display:none">
 
-    <div class="page-header">
+    <!-- Calendar Month Header & Navigation -->
+    <div class="calendar-header-bar">
       <div>
-        <h1 class="page-title">Today's Meals</h1>
-        <p id="calendar-date"></p>
+        <h1 class="page-title">Meal Calendar</h1>
+        <p class="calendar-subtitle">Click any day to view or plan meals</p>
+      </div>
+      <div class="calendar-nav-controls">
+        <button type="button" class="btn-cal-nav" onclick="changeMonth(-1)" title="Previous month" aria-label="Previous month">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <span class="calendar-current-month" id="calendar-month-label"></span>
+        <button type="button" class="btn-cal-nav" onclick="changeMonth(1)" title="Next month" aria-label="Next month">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button type="button" class="btn-cal-today" onclick="goToToday()">Today</button>
       </div>
     </div>
-  
-    <div class="meal-grid">
-  
-      <div class="meal-slot" id="meal-slot-breakfast">
-        <h2>🌅 Breakfast</h2>
-        <div id="breakfast-recipe" class="meal-recipe-assigned">
-          <p>No recipe assigned</p>
-        </div>
-        <div id="breakfast-actions" class="meal-slot-actions">
-          <button class="btn-add" onclick="openMealSelector('breakfast')">
-            Add Recipe
-          </button>
-        </div>
+
+    <!-- Calendar Month Grid Card -->
+    <div class="calendar-card">
+      <div class="calendar-weekdays">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
       </div>
-  
-      <div class="meal-slot" id="meal-slot-lunch">
-        <h2>☀️ Lunch</h2>
-        <div id="lunch-recipe" class="meal-recipe-assigned">
-          <p>No recipe assigned</p>
-        </div>
-        <div id="lunch-actions" class="meal-slot-actions">
-          <button class="btn-add" onclick="openMealSelector('lunch')">
-            Add Recipe
-          </button>
-        </div>
+      <div class="calendar-days-grid" id="calendar-days-grid">
+        <!-- Rendered dynamically -->
       </div>
-  
-      <div class="meal-slot" id="meal-slot-dinner">
-        <h2>🌙 Dinner</h2>
-        <div id="dinner-recipe" class="meal-recipe-assigned">
-          <p>No recipe assigned</p>
-        </div>
-        <div id="dinner-actions" class="meal-slot-actions">
-          <button class="btn-add" onclick="openMealSelector('dinner')">
-            Add Recipe
-          </button>
-        </div>
-      </div>
-  
     </div>
+
   </main>
+
+  <!-- DAY MEALS MODAL -->
+  <div class="modal-backdrop" id="day-meals-backdrop" onclick="backdropDayMealsClick(event)" style="display:none">
+    <div class="modal modal-day-meals">
+
+      <div class="modal-header">
+        <div>
+          <h2 id="day-modal-title">Meals for Day</h2>
+          <span class="day-modal-subtitle" id="day-modal-subtitle">Meal Plan</span>
+        </div>
+        <button class="modal-close" onclick="closeDayMealsModal()">&#x2715;</button>
+      </div>
+
+      <div class="modal-body day-meals-body">
+
+        <!-- Breakfast Slot -->
+        <div class="day-meal-card" id="meal-slot-breakfast">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">🌅</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Breakfast</h3>
+              <div id="breakfast-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="breakfast-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('breakfast')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+        <!-- Lunch Slot -->
+        <div class="day-meal-card" id="meal-slot-lunch">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">☀️</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Lunch</h3>
+              <div id="lunch-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="lunch-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('lunch')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+        <!-- Dinner Slot -->
+        <div class="day-meal-card" id="meal-slot-dinner">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">🌙</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Dinner</h3>
+              <div id="dinner-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="dinner-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('dinner')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-actions" style="padding: 0 1.4rem 1.25rem; margin-top: 0.5rem;">
+        <button type="button" class="btn-secondary" onclick="closeDayMealsModal()">Close</button>
+      </div>
+
+    </div>
+  </div>
+  <!-- END DAY MEALS MODAL -->
 
 
   <!-- ADD / EDIT RECIPE MODAL -->
