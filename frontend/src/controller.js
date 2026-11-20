@@ -11,6 +11,10 @@ let monthMealsByDate    = {};
 let activeMealType      = '';
 let searchRequestId     = 0;
 let mealSearchRequestId = 0;
+let calendarRequestId   = 0;
+let calendarAbortController = null;
+let isSavingMeal        = false;
+let isRemovingMeal      = false;
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -55,12 +59,23 @@ async function loadRecipes() {
 
 // ── Load calendar ─────────────────────────────────────────────────
 async function loadCalendar(year = currentYear, month = currentMonth) {
+  const requestId = ++calendarRequestId;
+
+  if (calendarAbortController) {
+    calendarAbortController.abort();
+  }
+  calendarAbortController = new AbortController();
+  const { signal } = calendarAbortController;
+
+  currentYear = year;
+  currentMonth = month;
+
   try {
-    currentYear = year;
-    currentMonth = month;
     const daysCount = new Date(year, month, 0).getDate();
     const startDate = formatDateString(year, month, 1);
-    const data = await apiFetch(`/api/calendar?start=${startDate}&days=${daysCount}`);
+    const data = await apiFetch(`/api/calendar?start=${startDate}&days=${daysCount}`, { signal });
+
+    if (requestId !== calendarRequestId) return false;
 
     monthMealsByDate = {};
     if (data && Array.isArray(data.days)) {
@@ -76,16 +91,19 @@ async function loadCalendar(year = currentYear, month = currentMonth) {
     }
 
     View.renderMonthGrid({
-      year: currentYear,
-      month: currentMonth,
+      year,
+      month,
       selectedDate,
       monthMealsByDate
     });
 
     const selectedDayMeals = monthMealsByDate[selectedDate] || {};
     View.renderCalendar(selectedDayMeals);
+    return true;
   } catch (err) {
+    if (err.name === 'AbortError' || requestId !== calendarRequestId) return false;
     View.showToast('Could not load calendar: ' + err.message);
+    return false;
   }
 }
 
@@ -245,7 +263,8 @@ function changeMonth(delta) {
 async function goToToday() {
   const now = new Date();
   selectedDate = getTodayDateString();
-  await loadCalendar(now.getFullYear(), now.getMonth() + 1);
+  const ok = await loadCalendar(now.getFullYear(), now.getMonth() + 1);
+  if (!ok) return;
   View.highlightSelectedDay(selectedDate);
   const todayMeals = monthMealsByDate[selectedDate] || {};
   View.openDayMealsModal(selectedDate, todayMeals);
@@ -293,9 +312,11 @@ async function handleMealRecipeSearch(val) {
 }
 
 async function selectRecipeForMeal(recipeId) {
+  if (isSavingMeal) return;
   const mealType = activeMealType || document.getElementById('selected-meal-type').value;
   if (!mealType) return;
 
+  isSavingMeal = true;
   const payload = {
     date: selectedDate,
     meal_type: mealType,
@@ -323,10 +344,14 @@ async function selectRecipeForMeal(recipeId) {
     View.showToast(`"${recipeName}" assigned to ${displayType}!`);
   } catch (err) {
     View.showToast('Could not assign meal: ' + err.message);
+  } finally {
+    isSavingMeal = false;
   }
 }
 
 async function removeMeal(mealType) {
+  if (isRemovingMeal) return;
+  isRemovingMeal = true;
   try {
     await apiFetch(`/api/calendar/meals?date=${selectedDate}&meal_type=${mealType}`, {
       method: 'DELETE',
@@ -343,6 +368,8 @@ async function removeMeal(mealType) {
     View.showToast(`Removed recipe from ${displayType}.`);
   } catch (err) {
     View.showToast('Could not remove meal: ' + err.message);
+  } finally {
+    isRemovingMeal = false;
   }
 }
 
