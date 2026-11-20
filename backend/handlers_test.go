@@ -1,5 +1,6 @@
 package main
 
+// Integration coverage for HTTP routing and JSON response behavior.
 import (
 	"encoding/json"
 	"net/http"
