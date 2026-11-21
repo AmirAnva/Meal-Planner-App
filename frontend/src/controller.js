@@ -1,9 +1,10 @@
 // ── controller.js — Event handlers & API calls (Controller layer) ─
 
 import * as View from './view.js';
-import { buildShoppingList } from './shopping-list.js';
+import { assessRecipeAvailability, buildShoppingList } from './shopping-list.js';
+import { formatRecipeIngredient } from './measurements.js';
 
-// ── State ─────────────────────────────────────────────────────────
+// ── State and application coordination (Controller layer) ─────────
 let recipes             = [];
 let pantryItems         = [];
 let pantryLoaded        = false;
@@ -17,6 +18,7 @@ let mealSearchRequestId = 0;
 let calendarRequestId   = 0;
 let shoppingSummaryRequestId = 0;
 let pantryRequestId = 0;
+// Request IDs prevent stale asynchronous responses from overwriting newer state.
 
 function showErrorToast(message) {
   View.showToast(message, true);
@@ -24,6 +26,7 @@ function showErrorToast(message) {
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
+  // Centralize HTTP error handling so callers can focus on state updates.
   const res = await fetch(path, options);
   if (!res.ok) {
     const body = await res.json().catch(() => ({}));
@@ -58,7 +61,13 @@ function renderCalendar() {
 }
 
 function renderRecipeCards(recipeList = recipes) {
-  View.render(recipeList, pantryItems, pantryLoaded);
+  const prepared = recipeList.map(recipe => ({
+    ...recipe,
+    availability: pantryLoaded
+      ? assessRecipeAvailability(recipe.ingredients, pantryItems)
+      : { status: 'unknown', label: 'Checking pantry' },
+  }));
+  View.render(prepared);
 }
 
 function refreshRecipeCards() {
@@ -161,7 +170,7 @@ function renderPantry() {
 
 async function submitPantryItem(e) {
   e.preventDefault();
-  const form = e.currentTarget;
+  const form = e.currentTarget && e.currentTarget !== document ? e.currentTarget : e.target;
   const ingredient = form.elements.ingredient.value.trim();
   if (!ingredient) {
     showErrorToast('Enter an ingredient to add it to your pantry.');
@@ -194,7 +203,7 @@ async function submitPantryItem(e) {
 
 async function updatePantryItem(e, id) {
   e.preventDefault();
-  const form = e.currentTarget;
+  const form = e.currentTarget && e.currentTarget !== document ? e.currentTarget : e.target;
   try {
     const updated = await apiFetch(`/api/pantry/${id}`, {
       method: 'PUT',
@@ -238,11 +247,34 @@ function setPantryUnitSystem(system) {
   renderPantry();
 }
 
+function readRecipeForm() {
+  const editId = document.getElementById('modal-edit-id').value;
+  const name = document.getElementById('f-name').value.trim();
+  const ingredients = [];
+  const rows = document.querySelectorAll('#f-ingredients-list .recipe-ingredient-row');
+  for (const row of rows) {
+    const ingredient = row.querySelector('[data-ingredient]').value.trim();
+    const quantity = row.querySelector('[data-quantity]').value.trim();
+    const unit = row.querySelector('[data-unit]').value;
+    if (!ingredient) {
+      if (quantity) return { error: 'Enter an ingredient for each quantity.' };
+      continue;
+    }
+    if (quantity && (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0)) {
+      return { error: 'Ingredient quantities must be greater than zero.' };
+    }
+    ingredients.push(formatRecipeIngredient(ingredient, quantity, unit));
+  }
+  const instructions = document.getElementById('f-instructions').value
+    .split('\n').map(value => value.trim()).filter(Boolean);
+  return { editId, payload: { name, ingredients, instructions } };
+}
+
 // ── Submit add or edit ────────────────────────────────────────────
 async function submitRecipe(e) {
   e.preventDefault();
 
-  const formData = View.readRecipeForm();
+  const formData = readRecipeForm();
   if (formData.error) {
     showErrorToast(formData.error);
     return;
@@ -347,19 +379,7 @@ function navigateTo(page) {
   const isRecipes = page === 'recipes';
   const isCalendar = page === 'calendar';
   const isPantry = page === 'pantry';
-
-  const recipesView = document.getElementById('recipes-view');
-  if (recipesView) recipesView.style.display = isRecipes ? 'block' : 'none';
-
-  const calendarView = document.getElementById('calendar-view');
-  if (calendarView) calendarView.style.display = isCalendar ? 'block' : 'none';
-
-  const pantryView = document.getElementById('pantry-view');
-  if (pantryView) pantryView.style.display = isPantry ? 'block' : 'none';
-
-  document.querySelectorAll('.nav-item').forEach(link => {
-    link.classList.toggle('active', link.dataset.page === page);
-  });
+  View.navigateTo(page);
 
   if (isCalendar) {
     loadCalendar();
@@ -510,6 +530,36 @@ Object.assign(window, {
   addRecipeIngredientRow: View.addRecipeIngredientRow,
   removeRecipeIngredientRow: View.removeRecipeIngredientRow,
   dismissToast: View.dismissToast,
+});
+
+View.bindViewEvents({
+  navigateTo,
+  changeCalendarMonth,
+  goToCurrentMonth,
+  openModal: View.openModal,
+  closeModal: View.closeModal,
+  closeDetailModal: View.closeDetailModal,
+  submitRecipe,
+  submitPantryItem,
+  updatePantryItem,
+  removePantryItem,
+  setPantryUnitSystem,
+  openDetailModal: (id) => View.openDetailModal(id, recipes, calendarDays),
+  removeRecipe,
+  editFromDetail,
+  openMealSelector,
+  removeMeal,
+  closeMealModal: View.closeMealModal,
+  selectRecipeForMeal,
+  createRecipeModal: View.openModal,
+  addRecipeIngredientRow: View.addRecipeIngredientRow,
+  removeRecipeIngredientRow: View.removeRecipeIngredientRow,
+  dismissToast: View.dismissToast,
+  handleSearch,
+  handleMealRecipeSearch,
+  backdropClick: View.backdropClick,
+  backdropDetailClick: View.backdropDetailClick,
+  backdropMealClick: View.backdropMealClick,
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────────
