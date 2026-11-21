@@ -1,13 +1,11 @@
-// ── view.js — DOM rendering (View layer) ────────────────────────
+// ── view.js — DOM rendering and view event binding (View layer) ──
 
 import {
   displayPantryQuantity,
-  formatRecipeIngredient,
   normalizeUnit,
   parseRecipeIngredientFields,
   pantryUnitOptions,
 } from './measurements.js';
-import { assessRecipeAvailability } from './shopping-list.js';
 
 export function escapeHTML(str) {
   if (!str) return '';
@@ -26,7 +24,7 @@ function pantryUnitSelect(selectedUnit) {
 }
 
 // ── Recipe grid ─────────────────────────────────────────────────
-export function render(recipeList = [], pantryItems = [], pantryLoaded = false) {
+export function render(recipeList = []) {
   const grid  = document.getElementById('recipe-grid');
   const empty = document.getElementById('empty-state');
   if (!grid || !empty) return;
@@ -40,12 +38,7 @@ export function render(recipeList = [], pantryItems = [], pantryLoaded = false) 
   }
 
   empty.style.display = 'none';
-  grid.innerHTML = filtered.map(recipe => {
-    const availability = pantryLoaded
-      ? assessRecipeAvailability(recipe.ingredients, pantryItems)
-      : { status: 'unknown', label: 'Checking pantry' };
-    return cardHTML({ ...recipe, availability });
-  }).join('');
+  grid.innerHTML = filtered.map(recipe => cardHTML(recipe)).join('');
 }
 
 export function renderPantry(items = [], unitSystem = 'metric') {
@@ -71,11 +64,11 @@ export function renderPantry(items = [], unitSystem = 'metric') {
       <div class="pantry-item-heading">
         <span class="pantry-item-name">${escapeHTML(item.ingredient)}</span>
         <span class="pantry-item-amount">${escapeHTML(displayPantryQuantity(item, unitSystem))}</span>
-        <button type="button" class="pantry-item-remove" onclick="removePantryItem(${Number(item.id)})" aria-label="Remove ${escapeHTML(item.ingredient)} from pantry">
+        <button type="button" class="pantry-item-remove" data-action="remove-pantry" data-id="${Number(item.id)}" aria-label="Remove ${escapeHTML(item.ingredient)} from pantry">
           Remove
         </button>
       </div>
-      <form class="pantry-quantity-form" onsubmit="updatePantryItem(event, ${Number(item.id)})">
+      <form class="pantry-quantity-form" data-submit="pantry-quantity" data-id="${Number(item.id)}">
         <label>
           Quantity
           <input class="form-input" name="quantity" type="number" min="0.001" step="any" value="${Number(item.quantity) > 0 ? Number(item.quantity) : ''}" required />
@@ -104,8 +97,8 @@ export function cardHTML(r) {
 
   const availability = r.availability || { status: 'unknown', label: 'Checking pantry' };
   return `
-    <div class="recipe-card availability-${availability.status}" id="card-${r.id}" onclick="openDetailModal(${r.id})" title="Click to view recipe details">
-      <button class="card-remove" onclick="event.stopPropagation(); removeRecipe(${r.id})" title="Remove recipe">&#x2715;</button>
+    <div class="recipe-card availability-${availability.status}" id="card-${r.id}" data-action="open-detail" data-id="${r.id}" title="Click to view recipe details">
+      <button type="button" class="card-remove" data-action="remove-recipe" data-id="${r.id}" title="Remove recipe">&#x2715;</button>
       <div class="card-body">
         <div class="card-name">${escapeHTML(r.name)}</div>
         <div class="recipe-availability">${escapeHTML(availability.label)}</div>
@@ -126,10 +119,10 @@ function calendarMealHTML(meal, type, date, editable) {
   const label = { breakfast: 'B', lunch: 'L', dinner: 'D' }[type];
   const recipe = meal && meal.recipe ? meal.recipe : null;
   const recipeDisplay = recipe
-    ? `<button type="button" class="calendar-recipe-link" onclick="openDetailModal(${Number(recipe.id)})" title="View ${escapeHTML(recipe.name)}">${escapeHTML(recipe.name)}</button>`
+    ? `<button type="button" class="calendar-recipe-link" data-action="open-detail" data-id="${Number(recipe.id)}" title="View ${escapeHTML(recipe.name)}">${escapeHTML(recipe.name)}</button>`
     : '<span class="calendar-empty-meal">—</span>';
   const actions = editable
-    ? `<button type="button" class="calendar-meal-action" onclick="openMealSelector('${type}', '${date}')" aria-label="${recipe ? 'Change' : 'Add'} ${type} on ${date}">${recipe ? 'Edit' : '+'}</button>${recipe ? `<button type="button" class="calendar-meal-remove" onclick="removeMeal('${type}', '${date}')" aria-label="Remove ${type} on ${date}">&times;</button>` : ''}`
+    ? `<button type="button" class="calendar-meal-action" data-action="open-meal" data-meal-type="${type}" data-date="${date}" aria-label="${recipe ? 'Change' : 'Add'} ${type} on ${date}">${recipe ? 'Edit' : '+'}</button>${recipe ? `<button type="button" class="calendar-meal-remove" data-action="remove-meal" data-meal-type="${type}" data-date="${date}" aria-label="Remove ${type} on ${date}">&times;</button>` : ''}`
     : '';
 
   return `
@@ -293,7 +286,7 @@ export function renderMealPickerList(recipesList = []) {
     container.innerHTML = `
       <div class="empty-state" style="padding: 2rem 1rem;">
         <p style="margin-bottom: 0.85rem;">No recipes available to assign.</p>
-        <button type="button" class="btn-add" onclick="closeMealModal(); navigateTo('recipes'); openModal();">
+        <button type="button" class="btn-add" data-action="create-from-meal">
           Create New Recipe
         </button>
       </div>
@@ -306,12 +299,12 @@ export function renderMealPickerList(recipesList = []) {
     const metaText = ingCount > 0 ? `${ingCount} ingredient${ingCount === 1 ? '' : 's'}` : 'No ingredients listed';
 
     return `
-      <div class="meal-picker-item" onclick="selectRecipeForMeal(${r.id})">
+      <div class="meal-picker-item" data-action="select-meal" data-id="${r.id}">
         <div class="meal-picker-item-info">
           <div class="meal-picker-item-name">${escapeHTML(r.name)}</div>
           <div class="meal-picker-item-meta">${escapeHTML(metaText)}</div>
         </div>
-        <button type="button" class="btn-add btn-select-meal" onclick="event.stopPropagation(); selectRecipeForMeal(${r.id})">
+        <button type="button" class="btn-add btn-select-meal" data-action="select-meal" data-id="${r.id}">
           Select
         </button>
       </div>
@@ -347,7 +340,7 @@ function recipeIngredientRowHTML(fields = {}) {
         <span>Unit</span>
         <select class="form-input" data-unit>${pantryUnitSelect(selectedUnit)}</select>
       </label>
-      <button type="button" class="recipe-ingredient-remove" onclick="removeRecipeIngredientRow(this)" aria-label="Remove ingredient">&times;</button>
+      <button type="button" class="recipe-ingredient-remove" data-action="remove-ingredient" aria-label="Remove ingredient">&times;</button>
     </div>
   `;
 }
@@ -513,29 +506,119 @@ export function restoreRecipeCard(id) {
   card.style.transform = 'scale(1)';
 }
 
-export function readRecipeForm() {
-  const editId = document.getElementById('modal-edit-id').value;
-  const name = document.getElementById('f-name').value.trim();
-  const ingredients = [];
-  const rows = document.querySelectorAll('#f-ingredients-list .recipe-ingredient-row');
-  for (const row of rows) {
-    const ingredient = row.querySelector('[data-ingredient]').value.trim();
-    const quantity = row.querySelector('[data-quantity]').value.trim();
-    const unit = row.querySelector('[data-unit]').value;
-    if (!ingredient) {
-      if (quantity) return { error: 'Enter an ingredient for each quantity.' };
-      continue;
-    }
-    if (quantity && (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0)) {
-      return { error: 'Ingredient quantities must be greater than zero.' };
-    }
-    ingredients.push(formatRecipeIngredient(ingredient, quantity, unit));
-  }
-  const instructions = document.getElementById('f-instructions').value
-    .split('\n').map(value => value.trim()).filter(Boolean);
-  return { editId, payload: { name, ingredients, instructions } };
-}
-
 export function getDetailRecipeId() {
   return document.getElementById('detail-recipe-id').value;
+}
+
+export function navigateTo(page) {
+  const validPages = ['recipes', 'calendar', 'pantry'];
+  if (!validPages.includes(page)) return;
+  document.getElementById('recipes-view').style.display = page === 'recipes' ? 'block' : 'none';
+  document.getElementById('calendar-view').style.display = page === 'calendar' ? 'block' : 'none';
+  document.getElementById('pantry-view').style.display = page === 'pantry' ? 'block' : 'none';
+  document.querySelectorAll('.nav-item').forEach(link => {
+    link.classList.toggle('active', link.dataset.page === page);
+  });
+  window.scrollTo(0, 0);
+}
+
+export function bindViewEvents(handlers) {
+  // Delegate data-action events from the view so application handlers stay centralized.
+  const addIngredientButton = document.getElementById('add-ingredient-button');
+  addIngredientButton?.addEventListener('click', event => {
+    event.stopPropagation();
+    handlers.addRecipeIngredientRow();
+  });
+
+  document.addEventListener('click', event => {
+    const target = event.target.closest('[data-action]');
+    if (!target) return;
+    const action = target.dataset.action;
+    switch (action) {
+      case 'navigate':
+        event.preventDefault();
+        handlers.navigateTo(target.dataset.page);
+        break;
+      case 'change-month':
+        handlers.changeCalendarMonth(Number(target.dataset.offset));
+        break;
+      case 'current-month':
+        handlers.goToCurrentMonth();
+        break;
+      case 'open-modal':
+        handlers.openModal();
+        break;
+      case 'close-modal':
+        handlers.closeModal();
+        break;
+      case 'close-detail':
+        handlers.closeDetailModal();
+        break;
+      case 'open-detail':
+        handlers.openDetailModal(Number(target.dataset.id));
+        break;
+      case 'remove-recipe':
+        event.stopPropagation();
+        handlers.removeRecipe(Number(target.dataset.id));
+        break;
+      case 'remove-pantry':
+        handlers.removePantryItem(Number(target.dataset.id));
+        break;
+      case 'set-unit-system':
+        handlers.setPantryUnitSystem(target.dataset.unitSystem);
+        break;
+      case 'edit-detail':
+        handlers.editFromDetail();
+        break;
+      case 'open-meal':
+        handlers.openMealSelector(target.dataset.mealType, target.dataset.date);
+        break;
+      case 'remove-meal':
+        handlers.removeMeal(target.dataset.mealType, target.dataset.date);
+        break;
+      case 'create-from-meal':
+        handlers.closeMealModal();
+        handlers.navigateTo('recipes');
+        handlers.openModal();
+        break;
+      case 'select-meal':
+        handlers.selectRecipeForMeal(Number(target.dataset.id));
+        break;
+      case 'close-meal':
+        handlers.closeMealModal();
+        break;
+      case 'remove-ingredient':
+        handlers.removeRecipeIngredientRow(target);
+        break;
+      case 'dismiss-toast':
+        handlers.dismissToast();
+        break;
+      default:
+        break;
+    }
+  });
+
+  document.addEventListener('submit', event => {
+    const form = event.target;
+    if (form.dataset.submit === 'recipe') handlers.submitRecipe(event);
+    if (form.dataset.submit === 'pantry') handlers.submitPantryItem(event);
+    if (form.dataset.submit === 'pantry-quantity') {
+      handlers.updatePantryItem(event, Number(form.dataset.id));
+    }
+  });
+
+  document.addEventListener('input', event => {
+    if (event.target.dataset.input === 'recipe-search') handlers.handleSearch(event.target.value);
+    if (event.target.dataset.input === 'meal-search') handlers.handleMealRecipeSearch(event.target.value);
+  });
+
+  for (const [id, handler] of [
+    ['modal-backdrop', handlers.backdropClick],
+    ['detail-backdrop', handlers.backdropDetailClick],
+    ['meal-modal-backdrop', handlers.backdropMealClick],
+  ]) {
+    document.getElementById(id)?.addEventListener('click', event => {
+      if (event.target === event.currentTarget) handler(event);
+    });
+  }
 }
