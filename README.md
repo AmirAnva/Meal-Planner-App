@@ -81,6 +81,12 @@ npm test
 | POST | `/api/pantry` | Add an ingredient with quantity and unit (`{"ingredient":"flour","quantity":500,"unit":"g"}`) |
 | PUT | `/api/pantry/{id}` | Update an ingredient's quantity and unit |
 | DELETE | `/api/pantry/{id}` | Remove a pantry ingredient |
+| GET | `/api/ingredients` | List normalized ingredient identities |
+| POST | `/api/ingredients` | Create a normalized ingredient |
+| DELETE | `/api/ingredients/{id}` | Remove an ingredient |
+| GET | `/api/grocery` | List grocery items |
+| POST | `/api/grocery` | Create a grocery item |
+| DELETE | `/api/grocery/{id}` | Remove a grocery item |
 | GET | `/api/calendar?start=YYYY-MM-DD&days=7` | Get calendar days and assigned meals |
 | POST | `/api/calendar/meals` | Assign or replace a meal (`date`, `meal_type`, `recipe_id`) |
 | DELETE | `/api/calendar/meals?date=YYYY-MM-DD&meal_type=breakfast` | Remove a meal assignment |
