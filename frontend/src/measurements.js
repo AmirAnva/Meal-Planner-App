@@ -1,3 +1,5 @@
+// Measurement parsing and conversion utilities for recipe ingredients and pantry items.
+// Keep this module independent of the DOM so conversions can be unit tested.
 export const pantryUnitOptions = [
   ['g', 'g'],
   ['kg', 'kg'],
@@ -76,6 +78,8 @@ const uncomparableUnitAliases = [
 ];
 
 function ingredientDensity(ingredient) {
+  // Approximate densities allow recognized mass/volume comparisons; unknown
+  // ingredients intentionally remain unverified rather than being guessed.
   const name = String(ingredient).toLowerCase().replace(/[^a-z ]/g, ' ').replace(/\s+/g, ' ').trim();
   if (name === 'olive oil') return 216;
   if (/^(?:powdered|confectioners) sugar$/.test(name)) return 120;
@@ -129,6 +133,7 @@ export function displayPantryQuantity(item, system) {
   const sourceUnit = normalizeUnit(item.unit);
   const quantity = Number(item.quantity);
   if (!sourceUnit || !Number.isFinite(quantity) || quantity <= 0) return 'Quantity not set';
+  const ingredientName = item.ingredient?.name || item.ingredient || '';
 
   const sourceDimension = units[sourceUnit].dimension;
   let targetUnit = sourceUnit;
@@ -136,15 +141,16 @@ export function displayPantryQuantity(item, system) {
   if (system === 'metric' && sourceDimension === 'volume') targetUnit = 'ml';
   if (system === 'us' && sourceDimension === 'volume') targetUnit = 'cup';
   if (system === 'us' && sourceDimension === 'mass') {
-    targetUnit = ingredientDensity(item.ingredient) ? 'cup' : 'oz';
+    targetUnit = ingredientDensity(ingredientName) ? 'cup' : 'oz';
   }
 
-  const converted = convertQuantity(quantity, sourceUnit, targetUnit, item.ingredient);
+  const converted = convertQuantity(quantity, sourceUnit, targetUnit, ingredientName);
   if (converted === null) return `${quantity} ${sourceUnit}`;
   return `${new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(converted)} ${targetUnit}`;
 }
 
 export function parseRecipeIngredient(value) {
+  // Parse the public legacy string format while preserving free-text ingredient names.
   let text = String(value || '').replace(/\([^)]*\)/g, ' ').trim();
   const amountMatch = text.match(recipeAmountPattern);
   let quantity = null;
