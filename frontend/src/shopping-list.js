@@ -1,5 +1,5 @@
 // Domain logic for comparing recipe requirements against pantry inventory.
-import { convertQuantity, normalizeUnit, parseRecipeIngredient } from './measurements.js';
+import { convertQuantity, normalizeUnit, parseRecipeIngredient } from './measurement.js';
 
 function pantryIngredientName(item) {
   const name = item.ingredient?.name || item.ingredient || '';

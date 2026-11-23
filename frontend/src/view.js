@@ -5,7 +5,7 @@ import {
   normalizeUnit,
   parseRecipeIngredientFields,
   pantryUnitOptions,
-} from './measurements.js';
+} from './measurement.js';
 
 export function escapeHTML(str) {
   if (!str) return '';
