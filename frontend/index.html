@@ -11,14 +11,14 @@
   <!-- NAVBAR -->
   <nav class="navbar">
 
-    <a href="#" class="nav-logo" data-action="navigate" data-page="recipes">
+    <a href="#" class="nav-logo" onclick="navigateTo('recipes'); return false;">
       <div class="logo-box">🥗</div>
       <span class="app-title">Meal Planner</span>
     </a>
 
     <ul class="nav-links">
       <li>
-        <a href="#" id="calendar-nav" class="nav-item" data-action="navigate" data-page="calendar">
+        <a href="#" id="calendar-nav" class="nav-item" data-page="calendar" onclick="navigateTo('calendar'); return false;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <rect x="3" y="4" width="18" height="18" rx="2"/>
             <line x1="16" y1="2" x2="16" y2="6"/><line x1="8" y1="2" x2="8" y2="6"/>
@@ -28,7 +28,7 @@
         </a>
       </li>
       <li>
-        <a href="#" id="recipes-nav" class="nav-item active" data-action="navigate" data-page="recipes">
+        <a href="#" id="recipes-nav" class="nav-item active" data-page="recipes" onclick="navigateTo('recipes'); return false;">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/>
           </svg>
@@ -36,13 +36,7 @@
         </a>
       </li>
       <li>
-        <a href="#" id="pantry-nav" class="nav-item" data-action="navigate" data-page="pantry">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 9h18l-2 12H5L3 9Z"/>
-            <path d="M8 9l4-6 4 6"/>
-          </svg>
-          Pantry
-        </a>
+        <a href="#" id="pantry-nav" class="nav-item" data-page="pantry" onclick="navigateTo('pantry'); return false;">Pantry</a>
       </li>
     </ul>
 
@@ -59,7 +53,7 @@
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">Recipes &nbsp;<span class="title-accent">Favorites</span></h1>
-      <button type="button" class="btn-add" data-action="open-modal">
+      <button class="btn-add" onclick="openModal()">
         <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
           <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
         </svg>
@@ -72,7 +66,7 @@
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
         <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
       </svg>
-      <input type="text" id="search-input" data-input="recipe-search" placeholder="Search recipes or ingredients…" />
+      <input type="text" id="search-input" placeholder="Search recipes or ingredients…" oninput="handleSearch(this.value)" />
     </div>
 
     <div class="recipe-availability-legend" aria-label="Recipe ingredient availability">
@@ -89,29 +83,40 @@
     <div class="empty-state" id="empty-state" style="display:none">
       <span>🍽️</span>
       <p>No recipes here yet.</p>
-      <button type="button" class="btn-add" data-action="open-modal">Add your first recipe</button>
+      <button class="btn-add" onclick="openModal()">Add your first recipe</button>
     </div>
 
   </main>
 
   <main class="page-content" id="calendar-view" style="display:none">
 
-    <div class="page-header">
-      <div class="calendar-heading">
-        <h1 class="page-title" id="calendar-month-title">Meal Calendar</h1>
+    <!-- Calendar Month Header & Navigation -->
+    <div class="calendar-header-bar">
+      <div>
+        <h1 class="page-title">Meal Calendar</h1>
+        <p class="calendar-subtitle">The current week is highlighted. Today through the end of next month is editable; past dates are read-only.</p>
       </div>
-      <div class="calendar-navigation">
-        <button type="button" class="calendar-nav-button" data-action="change-month" data-offset="-1" aria-label="Previous month">&lsaquo;</button>
-        <button type="button" class="calendar-current-button" data-action="current-month">Current month</button>
-        <button type="button" class="calendar-nav-button" data-action="change-month" data-offset="1" aria-label="Next month">&rsaquo;</button>
+      <div class="calendar-nav-controls">
+        <button type="button" class="btn-cal-nav" onclick="changeMonth(-1)" title="Previous month" aria-label="Previous month">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="15 18 9 12 15 6"></polyline>
+          </svg>
+        </button>
+        <span class="calendar-current-month" id="calendar-month-label"></span>
+        <button type="button" class="btn-cal-nav" onclick="changeMonth(1)" title="Next month" aria-label="Next month">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <polyline points="9 18 15 12 9 6"></polyline>
+          </svg>
+        </button>
+        <button type="button" class="btn-cal-today" onclick="goToToday()">Today</button>
       </div>
     </div>
 
     <section class="shopping-summary" aria-labelledby="shopping-summary-title">
       <div class="shopping-summary-heading">
         <div>
-          <h2 id="shopping-summary-title">Shopping list · Next 7 days</h2>
-          <p>Shortages are combined across scheduled meals. Include a quantity and unit on recipe lines; weight-to-volume conversions are estimates for recognized ingredients.</p>
+          <h2 id="shopping-summary-title">Shopping list · Today through next month</h2>
+          <p>Shortages are combined across meals scheduled from today through the end of next month. Weight-to-volume conversions are estimates for recognized ingredients.</p>
         </div>
         <span class="shopping-summary-count" id="shopping-summary-count">Loading</span>
       </div>
@@ -120,18 +125,16 @@
       </div>
     </section>
 
-    <div class="calendar-scroll">
-      <div class="calendar-weekdays" aria-hidden="true">
-        <div>Sun</div>
-        <div>Mon</div>
-        <div>Tue</div>
-        <div>Wed</div>
-        <div>Thu</div>
-        <div>Fri</div>
-        <div>Sat</div>
+    <!-- Calendar Month Grid Card -->
+    <div class="calendar-card">
+      <div class="calendar-weekdays">
+        <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
       </div>
-      <div class="calendar-grid" id="calendar-grid" aria-label="Monthly meal calendar"></div>
+      <div class="calendar-days-grid" id="calendar-days-grid">
+        <!-- Rendered dynamically -->
+      </div>
     </div>
+
   </main>
 
   <main class="page-content" id="pantry-view" style="display:none">
@@ -142,40 +145,24 @@
       </div>
     </div>
 
-    <form class="pantry-form" data-submit="pantry">
+    <form class="pantry-form" onsubmit="submitPantryItem(event)">
       <label class="pantry-field">
         <span>Ingredient</span>
-        <input class="form-input" id="pantry-ingredient" name="ingredient" type="text" placeholder="e.g. olive oil" required />
+        <input class="form-input" name="ingredient" type="text" placeholder="e.g. olive oil" required />
       </label>
       <label class="pantry-field pantry-quantity-field">
         <span>Quantity</span>
-        <input class="form-input" id="pantry-quantity" name="quantity" type="number" min="0.001" step="any" placeholder="e.g. 1.5" required />
+        <input class="form-input" name="quantity" type="number" min="0.001" step="any" placeholder="e.g. 1.5" required />
       </label>
       <label class="pantry-field pantry-unit-field">
         <span>Unit</span>
-        <select class="form-input" id="pantry-unit" name="unit" required>
-          <option value="g">g</option>
-          <option value="kg">kg</option>
-          <option value="oz">oz</option>
-          <option value="lb">lb</option>
-          <option value="ml">ml</option>
-          <option value="l">L</option>
-          <option value="tsp">tsp</option>
-          <option value="tbsp">tbsp</option>
-          <option value="cup">cup</option>
-          <option value="fl oz">fl oz</option>
-          <option value="piece">piece</option>
-          <option value="clove">clove</option>
-          <option value="can">can</option>
-          <option value="bunch">bunch</option>
-          <option value="pinch">pinch</option>
-          <option value="dash">dash</option>
-          <option value="package">package</option>
-          <option value="head">head</option>
-          <option value="slice">slice</option>
-          <option value="stalk">stalk</option>
-          <option value="sprig">sprig</option>
-          <option value="handful">handful</option>
+        <select class="form-input" name="unit" required>
+          <option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option>
+          <option value="ml">ml</option><option value="l">L</option><option value="tsp">tsp</option><option value="tbsp">tbsp</option>
+          <option value="cup">cup</option><option value="fl oz">fl oz</option><option value="piece">piece</option><option value="clove">clove</option>
+          <option value="can">can</option><option value="bunch">bunch</option><option value="pinch">pinch</option><option value="dash">dash</option>
+          <option value="package">package</option><option value="head">head</option><option value="slice">slice</option><option value="stalk">stalk</option>
+          <option value="sprig">sprig</option><option value="handful">handful</option>
         </select>
       </label>
       <button class="btn-add pantry-submit" type="submit">Add ingredient</button>
@@ -185,8 +172,8 @@
       <div class="pantry-unit-settings-row">
         <span>Display measurements in</span>
         <div class="pantry-unit-toggle" role="group" aria-label="Pantry measurement system">
-          <button type="button" data-action="set-unit-system" data-unit-system="metric">Metric</button>
-          <button type="button" data-action="set-unit-system" data-unit-system="us">US customary</button>
+          <button type="button" onclick="setPantryUnitSystem('metric')">Metric</button>
+          <button type="button" onclick="setPantryUnitSystem('us')">US customary</button>
         </div>
       </div>
       <span class="pantry-unit-note">Weight-to-volume conversions are approximate and available for recognized ingredients only.</span>
@@ -200,17 +187,96 @@
     </div>
   </main>
 
+  <!-- DAY MEALS MODAL -->
+  <div class="modal-backdrop" id="day-meals-backdrop" onclick="backdropDayMealsClick(event)" style="display:none">
+    <div class="modal modal-day-meals">
+
+      <div class="modal-header">
+        <div>
+          <h2 id="day-modal-title">Meals for Day</h2>
+          <span class="day-modal-subtitle" id="day-modal-subtitle">Meal Plan</span>
+          <p class="day-modal-warning" id="day-modal-warning" hidden></p>
+        </div>
+        <button class="modal-close" onclick="closeDayMealsModal()">&#x2715;</button>
+      </div>
+
+      <div class="modal-body day-meals-body">
+
+        <!-- Breakfast Slot -->
+        <div class="day-meal-card" id="meal-slot-breakfast">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">🌅</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Breakfast</h3>
+              <div id="breakfast-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="breakfast-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('breakfast')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+        <!-- Lunch Slot -->
+        <div class="day-meal-card" id="meal-slot-lunch">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">☀️</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Lunch</h3>
+              <div id="lunch-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="lunch-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('lunch')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+        <!-- Dinner Slot -->
+        <div class="day-meal-card" id="meal-slot-dinner">
+          <div class="day-meal-header">
+            <span class="day-meal-icon">🌙</span>
+            <div class="day-meal-info">
+              <h3 class="day-meal-name">Dinner</h3>
+              <div id="dinner-recipe" class="day-meal-assigned">
+                <p class="meal-empty-text">No recipe assigned</p>
+              </div>
+            </div>
+          </div>
+          <div id="dinner-actions" class="day-meal-actions">
+            <button type="button" class="btn-add btn-sm" onclick="openMealSelector('dinner')">
+              Add Recipe
+            </button>
+          </div>
+        </div>
+
+      </div>
+
+      <div class="modal-actions" style="padding: 0 1.4rem 1.25rem; margin-top: 0.5rem;">
+        <button type="button" class="btn-secondary" onclick="closeDayMealsModal()">Close</button>
+      </div>
+
+    </div>
+  </div>
+  <!-- END DAY MEALS MODAL -->
+
 
   <!-- ADD / EDIT RECIPE MODAL -->
-  <div class="modal-backdrop" id="modal-backdrop" style="display:none">
-    <div class="modal modal-recipe">
+  <div class="modal-backdrop" id="modal-backdrop" onclick="backdropClick(event)" style="display:none">
+    <div class="modal">
 
       <div class="modal-header">
         <h2 id="modal-title">Add New Recipe</h2>
-        <button type="button" class="modal-close" data-action="close-modal">&#x2715;</button>
+        <button class="modal-close" onclick="closeModal()">&#x2715;</button>
       </div>
 
-      <form class="modal-body" data-submit="recipe">
+      <form class="modal-body" onsubmit="submitRecipe(event)">
 
         <!-- Hidden field tracks which recipe is being edited (empty = new) -->
         <input type="hidden" id="modal-edit-id" value="" />
@@ -220,13 +286,13 @@
 
         <label class="form-label">Ingredients <span class="optional">(add one row per ingredient)</span></label>
         <div class="recipe-ingredients-list" id="f-ingredients-list"></div>
-        <button type="button" id="add-ingredient-button" class="btn-secondary recipe-ingredient-add" data-action="add-ingredient">+ Add ingredient</button>
+        <button type="button" id="add-ingredient-button" class="btn-secondary recipe-ingredient-add" onclick="addRecipeIngredientRow()">+ Add ingredient</button>
 
         <label class="form-label">Instructions <span class="optional">(one step per line)</span></label>
         <textarea class="form-input form-textarea" id="f-instructions" rows="3" placeholder="e.g.&#10;Toast bread until golden&#10;Mash avocado with salt and pepper&#10;Spread onto warm toast"></textarea>
 
         <div class="modal-actions">
-          <button type="button" class="btn-secondary" data-action="close-modal">Cancel</button>
+          <button type="button" class="btn-secondary" onclick="closeModal()">Cancel</button>
           <button type="submit" class="btn-add">Save Recipe</button>
         </div>
 
@@ -236,12 +302,12 @@
   <!-- END MODAL -->
 
   <!-- RECIPE DETAIL MODAL -->
-  <div class="modal-backdrop" id="detail-backdrop" style="display:none">
+  <div class="modal-backdrop" id="detail-backdrop" onclick="backdropDetailClick(event)" style="display:none">
     <div class="modal modal-detail">
 
       <div class="modal-header">
         <h2 id="d-name">Recipe Details</h2>
-        <button type="button" class="modal-close" data-action="close-detail">&#x2715;</button>
+        <button class="modal-close" onclick="closeDetailModal()">&#x2715;</button>
       </div>
 
       <div class="modal-body detail-body" id="d-body">
@@ -252,8 +318,8 @@
       <input type="hidden" id="detail-recipe-id" value="" />
 
       <div class="modal-actions" style="padding: 0 1.4rem 1.25rem;">
-        <button type="button" class="btn-secondary" data-action="close-detail">Close</button>
-        <button type="button" class="btn-add" data-action="edit-detail">
+        <button type="button" class="btn-secondary" onclick="closeDetailModal()">Close</button>
+        <button type="button" class="btn-add" onclick="editFromDetail()">
           <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
             <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
@@ -267,12 +333,12 @@
   <!-- END RECIPE DETAIL MODAL -->
 
   <!-- SELECT MEAL RECIPE MODAL -->
-  <div class="modal-backdrop" id="meal-modal-backdrop" style="display:none">
+  <div class="modal-backdrop" id="meal-modal-backdrop" onclick="backdropMealClick(event)" style="display:none">
     <div class="modal">
 
       <div class="modal-header">
         <h2 id="meal-modal-title">Select Recipe</h2>
-        <button type="button" class="modal-close" data-action="close-meal">&#x2715;</button>
+        <button class="modal-close" onclick="closeMealModal()">&#x2715;</button>
       </div>
 
       <div class="modal-body">
@@ -284,7 +350,7 @@
           id="meal-recipe-search"
           class="form-input"
           placeholder="Search recipes or ingredients…"
-          data-input="meal-search"
+          oninput="handleMealRecipeSearch(this.value)"
         />
 
         <div class="meal-picker-list" id="meal-picker-list">
@@ -292,7 +358,7 @@
         </div>
 
         <div class="modal-actions" style="margin-top: 1.25rem;">
-          <button type="button" class="btn-secondary" data-action="close-meal">Cancel</button>
+          <button type="button" class="btn-secondary" onclick="closeMealModal()">Cancel</button>
         </div>
       </div>
 
@@ -301,10 +367,7 @@
   <!--END SELECT MEAL RECIPE MODAL -->
 
   <!-- Toast notification -->
-  <div class="toast" id="toast" role="status" aria-live="polite">
-    <span id="toast-message"></span>
-    <button type="button" id="toast-close" data-action="dismiss-toast" aria-label="Dismiss notification" hidden>&times;</button>
-  </div>
+  <div class="toast" id="toast"></div>
 
   <!-- Application entry point -->
   <script type="module" src="/src/controller.js"></script>
