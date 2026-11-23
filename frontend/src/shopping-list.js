@@ -1,10 +1,13 @@
+// Domain logic for comparing recipe requirements against pantry inventory.
 import { convertQuantity, normalizeUnit, parseRecipeIngredient } from './measurements.js';
 
 function pantryIngredientName(item) {
-  return parseRecipeIngredient(item.ingredient)?.ingredient || '';
+  const name = item.ingredient?.name || item.ingredient || '';
+  return parseRecipeIngredient(name)?.ingredient || '';
 }
 
 function pantryMatches(ingredient, pantryItems) {
+  // Prefer exact names, then distinguish more specific pantry names from broader ones.
   const matches = pantryItems.flatMap(item => {
     const name = pantryIngredientName(item);
     if (!name) return [];
@@ -21,6 +24,8 @@ function pantryMatches(ingredient, pantryItems) {
 }
 
 function summarizeRequirements(group, pantryItem, ambiguous) {
+  // Convert all comparable requirements to the pantry unit; unknown units become
+  // "check" instead of assuming the pantry is sufficient.
   const { requirements, ...item } = group;
   const usableRequirements = requirements.filter(requirement =>
     Number.isFinite(requirement.quantity) && requirement.quantity > 0 && requirement.unit,
