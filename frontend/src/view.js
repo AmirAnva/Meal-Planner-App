@@ -1,4 +1,11 @@
 // ── view.js — DOM rendering (View layer) ────────────────────────
+import {
+  displayPantryQuantity,
+  formatRecipeIngredient,
+  normalizeUnit,
+  parseRecipeIngredientFields,
+  pantryUnitOptions,
+} from './measurements.js';
 
 export function escapeHTML(str) {
   if (!str) return '';
@@ -28,6 +35,49 @@ export function render(recipeList = []) {
   grid.innerHTML = filtered.map(cardHTML).join('');
 }
 
+function pantryUnitSelect(selectedUnit) {
+  return pantryUnitOptions.map(([value, label]) => `
+    <option value="${escapeHTML(value)}" ${value === selectedUnit ? 'selected' : ''}>${escapeHTML(label)}</option>
+  `).join('');
+}
+
+export function renderPantry(items = [], unitSystem = 'metric') {
+  const list = document.getElementById('pantry-list');
+  const empty = document.getElementById('pantry-empty-state');
+  if (!list || !empty) return;
+
+  document.querySelectorAll('[data-unit-system]').forEach(button => {
+    const selected = button.dataset.unitSystem === unitSystem;
+    button.classList.toggle('active', selected);
+    button.setAttribute('aria-pressed', String(selected));
+  });
+
+  if (items.length === 0) {
+    list.innerHTML = '';
+    empty.style.display = 'block';
+    return;
+  }
+
+  empty.style.display = 'none';
+  list.innerHTML = items.map(item => {
+    const name = item.ingredient?.name || '';
+    return `
+      <div class="pantry-item">
+        <div class="pantry-item-heading">
+          <span class="pantry-item-name">${escapeHTML(name)}</span>
+          <span class="pantry-item-amount">${escapeHTML(displayPantryQuantity(item, unitSystem))}</span>
+          <button type="button" class="pantry-item-remove" onclick="removePantryItem(${Number(item.ingredient_id)})" aria-label="Remove ${escapeHTML(name)} from pantry">Remove</button>
+        </div>
+        <form class="pantry-quantity-form" onsubmit="updatePantryItem(event, ${Number(item.ingredient_id)})">
+          <label>Quantity<input class="form-input" name="quantity" type="number" min="0.001" step="any" value="${Number(item.quantity) > 0 ? Number(item.quantity) : ''}" required /></label>
+          <label>Unit<select class="form-input" name="unit" required>${pantryUnitSelect(normalizeUnit(item.unit) || 'g')}</select></label>
+          <button type="submit" class="pantry-item-save">Save quantity</button>
+        </form>
+      </div>
+    `;
+  }).join('');
+}
+
 export function cardHTML(r) {
   const ingCount  = (r.ingredients && r.ingredients.length) ? r.ingredients.length : 0;
   const stepCount = (r.instructions && r.instructions.length) ? r.instructions.length : 0;
@@ -40,18 +90,20 @@ export function cardHTML(r) {
     metaText = parts.join(' • ');
   }
 
+  const availability = r.availability || { status: 'unknown', label: 'Checking pantry' };
   return `
-    <div class="recipe-card" id="card-${r.id}" onclick="openDetailModal(${r.id})" title="Click to view recipe details">
+    <div class="recipe-card availability-${availability.status}" id="card-${r.id}" onclick="openDetailModal(${r.id})" title="Click to view recipe details">
       <button class="card-remove" onclick="event.stopPropagation(); removeRecipe(${r.id})" title="Remove recipe">&#x2715;</button>
       <div class="card-body">
         <div class="card-name">${escapeHTML(r.name)}</div>
+        <div class="recipe-availability">${escapeHTML(availability.label)}</div>
         <div class="card-meta">${metaText}</div>
       </div>
     </div>`;
 }
 
 // ── Calendar rendering ───────────────────────────────────────────
-export function renderCalendar(calendarMeals = {}) {
+export function renderCalendar(calendarMeals = {}, editable = true) {
   const mealTypes = ['breakfast', 'lunch', 'dinner'];
   mealTypes.forEach(type => {
     const meal = calendarMeals[type];
@@ -83,8 +135,10 @@ export function renderCalendar(calendarMeals = {}) {
 
       if (actionsElem) {
         actionsElem.innerHTML = `
-          <button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">Change</button>
-          <button type="button" class="btn-secondary btn-sm" onclick="removeMeal('${type}')">Remove</button>
+          ${editable
+            ? `<button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">Change</button>
+          <button type="button" class="btn-secondary btn-sm" onclick="removeMeal('${type}')">Remove</button>`
+            : '<span class="day-meal-readonly">Read-only</span>'}
         `;
       }
     } else {
@@ -92,18 +146,18 @@ export function renderCalendar(calendarMeals = {}) {
         recipeElem.innerHTML = `<p class="meal-empty-text">No recipe assigned</p>`;
       }
       if (actionsElem) {
-        actionsElem.innerHTML = `
+        actionsElem.innerHTML = editable ? `
           <button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">
             Add Recipe
           </button>
-        `;
+        ` : '<span class="day-meal-readonly">Read-only</span>';
       }
     }
   });
 }
 
 // ── Day Meals Modal ──────────────────────────────────────────────
-export function openDayMealsModal(dateStr, calendarMeals = {}) {
+export function openDayMealsModal(dateStr, calendarMeals = {}, editable = true, warningMessage = '') {
   const backdrop = document.getElementById('day-meals-backdrop');
   if (!backdrop) return;
 
@@ -135,7 +189,12 @@ export function openDayMealsModal(dateStr, calendarMeals = {}) {
     });
   }
 
-  renderCalendar(calendarMeals);
+  renderCalendar(calendarMeals, editable);
+  const warning = document.getElementById('day-modal-warning');
+  if (warning) {
+    warning.textContent = warningMessage;
+    warning.hidden = !warningMessage;
+  }
   backdrop.style.display = 'flex';
 }
 
@@ -172,7 +231,14 @@ export function renderDayBadgesHTML(meals = {}) {
   return parts.join('');
 }
 
-export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = {} }) {
+function calendarDateString(date) {
+  const year = date.getFullYear();
+  const month = String(date.getMonth() + 1).padStart(2, '0');
+  const day = String(date.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
+export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = {}, editableDateBounds = {} }) {
   const monthLabel = document.getElementById('calendar-month-label');
   if (monthLabel) {
     const monthDate = new Date(year, month - 1, 1);
@@ -187,7 +253,15 @@ export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = 
   const prevMonthDays = new Date(year, month - 1, 0).getDate();
 
   const now = new Date();
-  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+  const todayStr = editableDateBounds.start || calendarDateString(now);
+  const [todayYear, todayMonth, todayDay] = todayStr.split('-').map(Number);
+  const currentWeekStart = new Date(todayYear, todayMonth - 1, todayDay);
+  currentWeekStart.setDate(currentWeekStart.getDate() - currentWeekStart.getDay());
+  const currentWeekEnd = new Date(currentWeekStart);
+  currentWeekEnd.setDate(currentWeekEnd.getDate() + 6);
+  const currentWeekStartStr = calendarDateString(currentWeekStart);
+  const currentWeekEndStr = calendarDateString(currentWeekEnd);
+  const lastEditableDate = editableDateBounds.end || todayStr;
 
   let html = '';
 
@@ -211,11 +285,15 @@ export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = 
     const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`;
     const isToday = dateStr === todayStr;
     const isSelected = isModalOpen && (dateStr === selectedDate);
+    const isEditable = dateStr >= todayStr && dateStr <= lastEditableDate;
     const meals = monthMealsByDate[dateStr] || {};
 
     let classes = 'cal-day-cell';
     if (isToday) classes += ' today';
     if (isSelected) classes += ' selected';
+    if (dateStr < todayStr) classes += ' past-date';
+    if (!isEditable) classes += ' read-only';
+    if (dateStr >= currentWeekStartStr && dateStr <= currentWeekEndStr) classes += ' current-week';
 
     const badgesHTML = renderDayBadgesHTML(meals);
 
@@ -245,6 +323,85 @@ export function renderMonthGrid({ year, month, selectedDate, monthMealsByDate = 
   }
 
   grid.innerHTML = html;
+}
+
+export function renderShoppingSummary(summary, startDate, endDate) {
+  const title = document.getElementById('shopping-summary-title');
+  const content = document.getElementById('shopping-summary-content');
+  const count = document.getElementById('shopping-summary-count');
+  if (!content || !count) return;
+
+  if (title && startDate instanceof Date && endDate instanceof Date) {
+    const formatDate = date => date.toLocaleDateString(undefined, {
+      month: 'short',
+      day: 'numeric',
+      year: 'numeric',
+    });
+    title.textContent = `Shopping list · ${formatDate(startDate)} – ${formatDate(endDate)}`;
+  }
+
+  const { items = [], plannedMealCount = 0, checkedIngredientCount = 0 } = summary;
+  const buyCount = items.filter(item => item.status === 'missing' || item.status === 'short').length;
+  const checkCount = items.filter(item => item.status === 'check').length;
+  count.textContent = `${buyCount} to buy · ${checkCount} to check`;
+
+  if (plannedMealCount === 0) {
+    content.innerHTML = '<p class="shopping-summary-empty">No meals are scheduled in this date range.</p>';
+    return;
+  }
+  if (checkedIngredientCount === 0) {
+    content.innerHTML = '<p class="shopping-summary-empty">The scheduled recipes do not list any ingredients yet.</p>';
+    return;
+  }
+  if (items.length === 0) {
+    content.innerHTML = '<p class="shopping-summary-empty">You have enough of the listed ingredients for these meals.</p>';
+    return;
+  }
+
+  content.innerHTML = `
+    <ul class="shopping-summary-list">
+      ${items.map(item => `
+        <li class="shopping-summary-item status-${item.status}">
+          <div class="shopping-summary-item-heading">
+            <strong>${escapeHTML(item.ingredient)}</strong>
+            <span class="shopping-summary-status">${shoppingStatusLabel(item.status)}</span>
+          </div>
+          <span class="shopping-summary-amount">${shoppingAmountMessage(item)}</span>
+          <span class="shopping-summary-uses">${item.uses.map(use => `${escapeHTML(use.recipe)} · ${shoppingDateLabel(use.date)}`).join('; ')}</span>
+        </li>
+      `).join('')}
+    </ul>
+  `;
+}
+
+function shoppingStatusLabel(status) {
+  return {
+    missing: 'Missing',
+    short: 'Not enough',
+    check: 'Check amount',
+  }[status] || 'Check';
+}
+
+function shoppingAmountMessage(item) {
+  const format = value => new Intl.NumberFormat(undefined, { maximumFractionDigits: 3 }).format(value);
+  if (item.status === 'short') {
+    return `Need ${format(item.needed)} ${escapeHTML(item.unit)}; have ${format(item.available)} ${escapeHTML(item.unit)}; short ${format(item.shortage)} ${escapeHTML(item.unit)}.`;
+  }
+  if (item.status === 'missing') {
+    return item.needed === null
+      ? 'Not in pantry; recipe amount could not be read.'
+      : `Need ${format(item.needed)} ${escapeHTML(item.unit)}.`;
+  }
+  return 'Could not compare recipe and pantry amounts; check the ingredient units and quantities.';
+}
+
+function shoppingDateLabel(date) {
+  const [year, month, day] = date.split('-').map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString('en-US', {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+  });
 }
 
 export function updateDayCellMeals(dateStr, meals = {}) {
@@ -343,7 +500,7 @@ export function openModal() {
   document.getElementById('modal-backdrop').style.display = 'flex';
   document.getElementById('modal-edit-id').value = '';
   document.getElementById('f-name').value         = '';
-  document.getElementById('f-ingredients').value  = '';
+  renderRecipeIngredientRows([]);
   document.getElementById('f-instructions').value = '';
   document.getElementById('f-name').focus();
 }
@@ -355,7 +512,7 @@ export function openEditModal(id, recipeList = []) {
   document.getElementById('modal-title').textContent = 'Edit Recipe';
   document.getElementById('modal-edit-id').value     = r.id;
   document.getElementById('f-name').value            = r.name;
-  document.getElementById('f-ingredients').value     = (r.ingredients || []).join('\n');
+  renderRecipeIngredientRows(r.ingredients || []);
   document.getElementById('f-instructions').value   = (r.instructions || []).join('\n');
   document.getElementById('modal-backdrop').style.display = 'flex';
   document.getElementById('f-name').focus();
@@ -366,7 +523,7 @@ export function closeModal() {
   if (backdrop) backdrop.style.display = 'none';
   document.getElementById('modal-edit-id').value = '';
   document.getElementById('f-name').value         = '';
-  document.getElementById('f-ingredients').value  = '';
+  renderRecipeIngredientRows([]);
   document.getElementById('f-instructions').value = '';
 }
 
@@ -458,11 +615,73 @@ export function restoreRecipeCard(id) {
 export function readRecipeForm() {
   const editId = document.getElementById('modal-edit-id').value;
   const name = document.getElementById('f-name').value.trim();
-  const ingredients = document.getElementById('f-ingredients').value
-    .split('\n').map(value => value.trim()).filter(Boolean);
+  const ingredients = [];
+  const rows = document.querySelectorAll('#f-ingredients-list .recipe-ingredient-row');
+  for (const row of rows) {
+    const ingredient = row.querySelector('[data-ingredient]').value.trim();
+    const quantity = row.querySelector('[data-quantity]').value.trim();
+    const unit = row.querySelector('[data-unit]').value;
+    if (!ingredient) {
+      if (quantity) return { error: 'Enter an ingredient for each quantity.' };
+      continue;
+    }
+    if (quantity && (!Number.isFinite(Number(quantity)) || Number(quantity) <= 0)) {
+      return { error: 'Ingredient quantities must be greater than zero.' };
+    }
+    ingredients.push(formatRecipeIngredient(ingredient, quantity, unit));
+  }
   const instructions = document.getElementById('f-instructions').value
     .split('\n').map(value => value.trim()).filter(Boolean);
   return { editId, payload: { name, ingredients, instructions } };
+}
+
+function recipeIngredientRowHTML(fields = {}) {
+  const selectedUnit = normalizeUnit(fields.unit) || 'g';
+  return `
+    <div class="recipe-ingredient-row">
+      <label class="recipe-ingredient-field recipe-ingredient-name">
+        <span>Ingredient</span>
+        <input class="form-input" data-ingredient type="text" value="${escapeHTML(fields.ingredient || '')}" placeholder="e.g. flour" />
+      </label>
+      <label class="recipe-ingredient-field recipe-ingredient-quantity">
+        <span>Quantity</span>
+        <input class="form-input" data-quantity type="number" min="0.001" step="any" value="${escapeHTML(fields.quantity || '')}" placeholder="e.g. 2" />
+      </label>
+      <label class="recipe-ingredient-field recipe-ingredient-unit">
+        <span>Unit</span>
+        <select class="form-input" data-unit>${pantryUnitSelect(selectedUnit)}</select>
+      </label>
+      <button type="button" class="recipe-ingredient-remove" onclick="removeRecipeIngredientRow(this)" aria-label="Remove ingredient">&times;</button>
+    </div>
+  `;
+}
+
+function renderRecipeIngredientRows(ingredients = []) {
+  const container = document.getElementById('f-ingredients-list');
+  if (!container) return;
+  const rows = ingredients.map(parseRecipeIngredientFields);
+  if (rows.length === 0) rows.push({ ingredient: '', quantity: '', unit: 'g' });
+  container.innerHTML = rows.map(recipeIngredientRowHTML).join('');
+}
+
+export function addRecipeIngredientRow() {
+  const container = document.getElementById('f-ingredients-list');
+  if (!container) return;
+  container.insertAdjacentHTML('beforeend', recipeIngredientRowHTML());
+  container.lastElementChild.querySelector('[data-ingredient]').focus();
+}
+
+export function removeRecipeIngredientRow(button) {
+  const container = document.getElementById('f-ingredients-list');
+  const row = button.closest('.recipe-ingredient-row');
+  if (!container || !row) return;
+  if (container.children.length === 1) {
+    row.querySelector('[data-ingredient]').value = '';
+    row.querySelector('[data-quantity]').value = '';
+    row.querySelector('[data-unit]').value = 'g';
+    return;
+  }
+  row.remove();
 }
 
 export function getDetailRecipeId() {
