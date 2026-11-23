@@ -1,8 +1,6 @@
 package main
 
-// HTTP transport layer: decode requests, enforce API status codes, and delegate persistence.
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -24,13 +22,24 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)
 	mux.HandleFunc("PUT /api/recipes/{id}", api.updateRecipe)
 	mux.HandleFunc("DELETE /api/recipes/{id}", api.deleteRecipe)
+	mux.HandleFunc("GET /api/ingredients", api.listIngredients)
+	mux.HandleFunc("POST /api/ingredients", api.createIngredient)
+	mux.HandleFunc("DELETE /api/ingredients/{id}", api.deleteIngredient)
+	mux.HandleFunc("PUT /api/recipes/{id}/ingredients", api.setRecipeIngredients)
+	mux.HandleFunc("GET /api/pantry-items", api.listPantryItems)
+	mux.HandleFunc("POST /api/pantry-items", api.addPantryItem)
+	mux.HandleFunc("PUT /api/pantry-items", api.savePantryItem)
+	mux.HandleFunc("PUT /api/pantry-items/{id}", api.updatePantryItem)
+	mux.HandleFunc("DELETE /api/pantry-items/{id}", api.deletePantryItem)
 	mux.HandleFunc("GET /api/pantry", api.listPantryItems)
 	mux.HandleFunc("POST /api/pantry", api.addPantryItem)
 	mux.HandleFunc("PUT /api/pantry/{id}", api.updatePantryItem)
 	mux.HandleFunc("DELETE /api/pantry/{id}", api.deletePantryItem)
-	mux.HandleFunc("GET /api/ingredients", api.listIngredients)
-	mux.HandleFunc("POST /api/ingredients", api.createIngredient)
-	mux.HandleFunc("DELETE /api/ingredients/{id}", api.deleteIngredient)
+	mux.HandleFunc("GET /api/grocery-list", api.listGroceryItems)
+	mux.HandleFunc("POST /api/grocery-list", api.createGroceryItem)
+	mux.HandleFunc("PUT /api/grocery-list/{id}", api.updateGroceryItem)
+	mux.HandleFunc("DELETE /api/grocery-list/{id}", api.deleteGroceryItem)
+	mux.HandleFunc("POST /api/grocery-list/generate", api.generateGroceryList)
 	mux.HandleFunc("GET /api/grocery", api.listGroceryItems)
 	mux.HandleFunc("POST /api/grocery", api.createGroceryItem)
 	mux.HandleFunc("DELETE /api/grocery/{id}", api.deleteGroceryItem)
@@ -38,169 +47,6 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	mux.HandleFunc("POST /api/calendar/meals", api.assignCalendarMeal)
 	mux.HandleFunc("DELETE /api/calendar/meals", api.removeCalendarMeal)
 	return cors(mux)
-}
-
-func (api *API) listIngredients(w http.ResponseWriter, _ *http.Request) {
-	items, err := api.store.ListIngredients()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not load ingredients")
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-func (api *API) createIngredient(w http.ResponseWriter, r *http.Request) {
-	var item Ingredient
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid ingredient JSON")
-		return
-	}
-	created, err := api.store.CreateIngredient(item)
-	if err != nil {
-		writeError(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusCreated, created)
-}
-
-func (api *API) deleteIngredient(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id < 1 {
-		writeError(w, http.StatusBadRequest, "ingredient id must be a positive integer")
-		return
-	}
-	if err := api.store.DeleteIngredient(id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "ingredient not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not remove ingredient")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (api *API) listGroceryItems(w http.ResponseWriter, _ *http.Request) {
-	items, err := api.store.ListGroceryItems()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not load grocery items")
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-func (api *API) createGroceryItem(w http.ResponseWriter, r *http.Request) {
-	var item GroceryItem
-	if err := json.NewDecoder(r.Body).Decode(&item); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid grocery item JSON")
-		return
-	}
-	created, err := api.store.CreateGroceryItem(item)
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not save grocery item")
-		return
-	}
-	writeJSON(w, http.StatusCreated, created)
-}
-
-func (api *API) deleteGroceryItem(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id < 1 {
-		writeError(w, http.StatusBadRequest, "grocery item id must be a positive integer")
-		return
-	}
-	if err := api.store.DeleteGroceryItem(id); err != nil {
-		if errors.Is(err, sql.ErrNoRows) {
-			writeError(w, http.StatusNotFound, "grocery item not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not remove grocery item")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
-}
-
-func (api *API) listPantryItems(w http.ResponseWriter, _ *http.Request) {
-	items, err := api.store.ListPantryItems()
-	if err != nil {
-		writeError(w, http.StatusInternalServerError, "could not load pantry")
-		return
-	}
-	writeJSON(w, http.StatusOK, items)
-}
-
-func (api *API) addPantryItem(w http.ResponseWriter, r *http.Request) {
-	var item PantryItem
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&item); err != nil {
-		writeError(w, http.StatusBadRequest, fmt.Sprintf("invalid pantry item JSON: %v", err))
-		return
-	}
-	created, err := api.store.AddPantryItem(item)
-	if err != nil {
-		if errors.Is(err, ErrPantryIngredientRequired) {
-			writeError(w, http.StatusBadRequest, "ingredient is required")
-			return
-		}
-		if errors.Is(err, ErrPantryQuantityInvalid) {
-			writeError(w, http.StatusBadRequest, "quantity must be positive and use a supported unit")
-			return
-		}
-		if errors.Is(err, ErrPantryItemExists) {
-			writeError(w, http.StatusConflict, "ingredient is already in the pantry")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not save pantry item")
-		return
-	}
-	writeJSON(w, http.StatusCreated, created)
-}
-
-func (api *API) updatePantryItem(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id < 1 {
-		writeError(w, http.StatusBadRequest, "pantry item id must be a positive integer")
-		return
-	}
-	var quantity PantryQuantity
-	decoder := json.NewDecoder(r.Body)
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(&quantity); err != nil {
-		writeError(w, http.StatusBadRequest, "invalid pantry quantity JSON")
-		return
-	}
-	updated, err := api.store.UpdatePantryItem(id, quantity)
-	if err != nil {
-		if errors.Is(err, ErrPantryQuantityInvalid) {
-			writeError(w, http.StatusBadRequest, "quantity must be positive and use a supported unit")
-			return
-		}
-		if errors.Is(err, ErrPantryItemNotFound) {
-			writeError(w, http.StatusNotFound, "pantry item not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not update pantry item")
-		return
-	}
-	writeJSON(w, http.StatusOK, updated)
-}
-
-func (api *API) deletePantryItem(w http.ResponseWriter, r *http.Request) {
-	id, err := strconv.Atoi(r.PathValue("id"))
-	if err != nil || id < 1 {
-		writeError(w, http.StatusBadRequest, "pantry item id must be a positive integer")
-		return
-	}
-	if err := api.store.DeletePantryItem(id); err != nil {
-		if errors.Is(err, ErrPantryItemNotFound) {
-			writeError(w, http.StatusNotFound, "pantry item not found")
-			return
-		}
-		writeError(w, http.StatusInternalServerError, "could not remove pantry item")
-		return
-	}
-	w.WriteHeader(http.StatusNoContent)
 }
 
 func (api *API) getCalendar(w http.ResponseWriter, r *http.Request) {
