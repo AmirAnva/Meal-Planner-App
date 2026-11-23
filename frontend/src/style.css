@@ -518,6 +518,78 @@ body {
   color: white;
 }
 
+.shopping-summary {
+  margin: 1rem 0;
+  padding: 1rem 1.2rem;
+  background: #fff;
+  border: 1px solid #e8e8e8;
+  border-radius: 10px;
+}
+
+.shopping-summary-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.shopping-summary-heading h2 {
+  margin: 0;
+  font-size: 1.05rem;
+}
+
+.shopping-summary-heading p {
+  margin: .35rem 0 0;
+  color: #777;
+  font-size: .82rem;
+}
+
+.shopping-summary-count {
+  flex-shrink: 0;
+  color: #555;
+  font-size: .82rem;
+  font-weight: 700;
+}
+
+.shopping-summary-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 270px), 1fr));
+  gap: .6rem;
+  margin: .8rem 0 0;
+  padding: 0;
+  list-style: none;
+}
+
+.shopping-summary-item {
+  display: grid;
+  gap: .3rem;
+  padding: .65rem .75rem;
+  border-left: 3px solid #e53935;
+  background: #fff8f7;
+}
+
+.shopping-summary-item.status-check {
+  border-color: #fb8c00;
+  background: #fffaf0;
+}
+
+.shopping-summary-item-heading {
+  display: flex;
+  justify-content: space-between;
+  gap: .5rem;
+}
+
+.shopping-summary-status,
+.shopping-summary-uses,
+.shopping-summary-amount {
+  color: #666;
+  font-size: .8rem;
+}
+
+.shopping-summary-empty {
+  margin: .8rem 0 0;
+  color: #777;
+}
+
 /* Month Card & Weekdays */
 .calendar-card {
   background: white;
