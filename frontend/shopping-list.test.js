@@ -1,7 +1,41 @@
+// Tests for ingredient parsing, quantity conversion, pantry coverage, and shopping aggregation.
 import assert from 'node:assert/strict';
 import test from 'node:test';
 import { assessRecipeAvailability, buildShoppingList } from '../src/shopping-list.js';
 import { formatRecipeIngredient, parseRecipeIngredient, parseRecipeIngredientFields } from '../src/measurements.js';
+import { addRecipeIngredientRow } from '../src/view.js';
+
+test('adds a new recipe ingredient row and focuses its ingredient field', () => {
+  const focused = { value: false };
+  const container = {
+    insertAdjacentHTMLCalls: 0,
+    lastElementChild: null,
+    insertAdjacentHTML(_position, _html) {
+      this.insertAdjacentHTMLCalls += 1;
+      this.lastElementChild = {
+        querySelector() {
+          return {
+            focus() {
+              focused.value = true;
+            },
+          };
+        },
+      };
+    },
+  };
+
+  globalThis.document = {
+    getElementById(id) {
+      return id === 'f-ingredients-list' ? container : null;
+    },
+  };
+
+  addRecipeIngredientRow();
+
+  assert.equal(container.insertAdjacentHTMLCalls, 1);
+  assert.equal(focused.value, true);
+  delete globalThis.document;
+});
 
 test('aggregates demands and reports absent ingredients across scheduled meals', () => {
   const result = buildShoppingList([
