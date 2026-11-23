@@ -49,7 +49,7 @@ func TestRecipeIngredientPersistenceAndLegacyJSONSync(t *testing.T) {
 		t.Fatalf("ListRecipeIngredients() = %+v, %v", items, err)
 	}
 	got, err := repo.GetRecipe(recipe.ID)
-	if err != nil || len(got.Ingredients) != 1 || got.Ingredients[0] != "Carrot" {
+	if err != nil || len(got.Ingredients) != 1 || got.Ingredients[0] != "2 cups Carrot" {
 		t.Fatalf("GetRecipe() = %+v, %v", got, err)
 	}
 	if err := repo.SetRecipeIngredients(recipe.ID, nil); err != nil {
