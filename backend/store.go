@@ -1,6 +1,5 @@
 package main
 
-// SQLite persistence and schema migrations, kept separate from HTTP and domain validation.
 import (
 	"database/sql"
 	"encoding/json"
@@ -14,11 +13,9 @@ import (
 )
 
 var (
-	ErrRecipeNotFound     = errors.New("recipe not found")
-	ErrPantryItemNotFound = errors.New("pantry item not found")
-	ErrPantryItemExists   = errors.New("pantry item already exists")
-	ErrDayNotFound        = errors.New("day not found")
-	ErrMealNotFound       = errors.New("meal not found")
+	ErrRecipeNotFound = errors.New("recipe not found")
+	ErrDayNotFound    = errors.New("day not found")
+	ErrMealNotFound   = errors.New("meal not found")
 )
 
 // SQLiteRepository owns the database connection and all SQL persistence.
@@ -56,39 +53,12 @@ func OpenSQLiteRepository(path string) (*SQLiteRepository, error) {
 }
 
 func createSchema(db *sql.DB) error {
-	// Legacy columns are tolerated so databases created by earlier app versions
-	// can be upgraded in place without losing recipes or pantry data.
 	_, err := db.Exec(`
 CREATE TABLE IF NOT EXISTS recipes (
   recipe_id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT NOT NULL,
   ingredients TEXT NOT NULL DEFAULT '[]',
   instructions TEXT NOT NULL DEFAULT '[]'
-);
-CREATE TABLE IF NOT EXISTS pantry_items (
-  pantry_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ingredient TEXT NOT NULL COLLATE NOCASE UNIQUE,
-  quantity REAL NOT NULL DEFAULT 0,
-  unit TEXT NOT NULL DEFAULT ''
-);
-CREATE TABLE IF NOT EXISTS ingredients (
-  ingredient_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  name TEXT NOT NULL UNIQUE COLLATE NOCASE
-);
-CREATE TABLE IF NOT EXISTS recipe_ingredients (
-  recipe_id INTEGER NOT NULL REFERENCES recipes(recipe_id) ON DELETE CASCADE,
-  ingredient_id INTEGER NOT NULL REFERENCES ingredients(ingredient_id) ON DELETE CASCADE,
-  quantity REAL,
-  unit TEXT,
-  PRIMARY KEY (recipe_id, ingredient_id)
-);
-CREATE TABLE IF NOT EXISTS grocery_items (
-  grocery_item_id INTEGER PRIMARY KEY AUTOINCREMENT,
-  ingredient_id INTEGER REFERENCES ingredients(ingredient_id) ON DELETE SET NULL,
-  name TEXT,
-  quantity REAL,
-  unit TEXT,
-  purchased INTEGER NOT NULL DEFAULT 0
 );
 CREATE TABLE IF NOT EXISTS days (
   day_id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -100,93 +70,285 @@ CREATE TABLE IF NOT EXISTS meals (
   recipe_id INTEGER NOT NULL REFERENCES recipes(recipe_id) ON DELETE CASCADE,
   meal_type TEXT NOT NULL CHECK (meal_type IN ('breakfast', 'lunch', 'dinner')),
   UNIQUE(day_id, meal_type)
-);`)
+);
+CREATE TABLE IF NOT EXISTS ingredients (
+ ingredient_id INTEGER PRIMARY KEY,
+ name TEXT NOT NULL UNIQUE COLLATE NOCASE
+);
+CREATE TABLE IF NOT EXISTS recipe_ingredients (
+ recipe_id INTEGER NOT NULL REFERENCES recipes(recipe_id) ON DELETE CASCADE,
+ ingredient_id INTEGER NOT NULL REFERENCES ingredients(ingredient_id),
+ quantity REAL,
+ unit TEXT,
+ PRIMARY KEY (recipe_id, ingredient_id)
+);
+CREATE TABLE IF NOT EXISTS grocery_items (
+ grocery_item_id INTEGER PRIMARY KEY,
+ ingredient_id INTEGER REFERENCES ingredients(ingredient_id),
+ name TEXT,
+ quantity REAL,
+ unit TEXT,
+ purchased INTEGER NOT NULL DEFAULT 0
+);
+CREATE TABLE IF NOT EXISTS pantry_items (
+ ingredient_id INTEGER PRIMARY KEY REFERENCES ingredients(ingredient_id),
+ quantity REAL NOT NULL DEFAULT 0,
+ unit TEXT
+);
+CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
 	if err != nil {
+		return err
+	}
+	if err := migrateLegacyPantryTable(db); err != nil {
 		return err
 	}
 	if err := migratePantryQuantityColumns(db); err != nil {
 		return err
 	}
-	return migrateNormalizedInventory(db)
-}
-
-func migrateNormalizedInventory(db *sql.DB) error {
-	// Import legacy []string ingredient data once, then keep normalized
-	// recipe_ingredients associations authoritative for future writes.
-	tx, err := db.Begin()
-	if err != nil {
+	var migrated int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=1`).Scan(&migrated); err != nil {
 		return err
 	}
-	defer tx.Rollback()
+	if migrated == 0 {
+		// Legacy recipe JSON is imported once. After this migration,
+		// recipe_ingredients is authoritative and recipes.ingredients is maintained
+		// as a compatibility view.
+		rows, err := db.Query(`SELECT recipe_id, ingredients FROM recipes`)
+		if err != nil {
+			return err
+		}
+		type legacyRecipe struct {
+			id    int
+			names []string
+		}
+		var legacy []legacyRecipe
+		for rows.Next() {
+			var item legacyRecipe
+			var raw string
+			if err := rows.Scan(&item.id, &raw); err != nil {
+				rows.Close()
+				return err
+			}
+			if err := json.Unmarshal([]byte(raw), &item.names); err != nil {
+				rows.Close()
+				return fmt.Errorf("decode legacy recipe ingredients: %w", err)
+			}
+			legacy = append(legacy, item)
+		}
+		if err := rows.Err(); err != nil {
+			rows.Close()
+			return err
+		}
+		if err := rows.Close(); err != nil {
+			return err
+		}
+		tx, err := db.Begin()
+		if err != nil {
+			return err
+		}
+		defer tx.Rollback()
+		for _, recipe := range legacy {
+			if err := importRecipeIngredientsTx(tx, recipe.id, recipe.names); err != nil {
+				return err
+			}
+		}
+		if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(1)`); err != nil {
+			return err
+		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
+	}
+	return migrateLegacyRecipeIngredientQuantities(db)
+}
 
-	rows, err := tx.Query(`SELECT recipe_id, ingredients FROM recipes`)
+func migrateLegacyRecipeIngredientQuantities(db *sql.DB) error {
+	var migrated int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=2`).Scan(&migrated); err != nil {
+		return err
+	}
+	if migrated != 0 {
+		return nil
+	}
+
+	rows, err := db.Query(`SELECT recipe_id, ingredients FROM recipes`)
 	if err != nil {
 		return err
 	}
 	type legacyRecipe struct {
-		id         int
-		ingredient []string
+		id    int
+		names []string
 	}
 	var recipes []legacyRecipe
 	for rows.Next() {
-		var item legacyRecipe
+		var recipe legacyRecipe
 		var raw string
-		if err := rows.Scan(&item.id, &raw); err != nil {
+		if err := rows.Scan(&recipe.id, &raw); err != nil {
 			rows.Close()
 			return err
 		}
-		if err := json.Unmarshal([]byte(raw), &item.ingredient); err != nil {
+		if err := json.Unmarshal([]byte(raw), &recipe.names); err != nil {
 			rows.Close()
 			return fmt.Errorf("decode legacy recipe ingredients: %w", err)
 		}
-		recipes = append(recipes, item)
+		recipes = append(recipes, recipe)
 	}
 	if err := rows.Err(); err != nil {
 		rows.Close()
 		return err
 	}
-	rows.Close()
-
-	for _, recipe := range recipes {
-		for _, name := range recipe.ingredient {
-			name = strings.TrimSpace(name)
-			if name == "" {
-				continue
-			}
-			if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
-				return err
-			}
-			if _, err := tx.Exec(`INSERT INTO recipe_ingredients(recipe_id, ingredient_id) SELECT ?, ingredient_id FROM ingredients WHERE name=? ON CONFLICT(recipe_id, ingredient_id) DO NOTHING`, recipe.id, name); err != nil {
-				return err
-			}
-		}
+	if err := rows.Close(); err != nil {
+		return err
 	}
 
-	pantryRows, err := tx.Query(`SELECT ingredient FROM pantry_items`)
+	tx, err := db.Begin()
 	if err != nil {
 		return err
 	}
-	var pantryNames []string
-	for pantryRows.Next() {
-		var name string
-		if err := pantryRows.Scan(&name); err != nil {
-			pantryRows.Close()
+	defer tx.Rollback()
+	for _, recipe := range recipes {
+		legacyNames := make(map[string]bool, len(recipe.names))
+		for _, name := range recipe.names {
+			legacyNames[strings.ToLower(strings.TrimSpace(name))] = true
+		}
+
+		associations, err := tx.Query(`SELECT i.name, ri.quantity, ri.unit
+FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id)
+WHERE ri.recipe_id=?`, recipe.id)
+		if err != nil {
 			return err
 		}
-		pantryNames = append(pantryNames, name)
-	}
-	if err := pantryRows.Err(); err != nil {
-		pantryRows.Close()
-		return err
-	}
-	pantryRows.Close()
-	for _, name := range pantryNames {
-		name = strings.TrimSpace(name)
-		if name != "" {
-			if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+		hasAssociations := false
+		onlyLegacyNames := true
+		hasStructuredQuantity := false
+		for associations.Next() {
+			var name string
+			var quantity sql.NullFloat64
+			var unit sql.NullString
+			if err := associations.Scan(&name, &quantity, &unit); err != nil {
+				associations.Close()
+				return err
+			}
+			hasAssociations = true
+			if quantity.Valid || unit.Valid {
+				hasStructuredQuantity = true
+			}
+			if !legacyNames[strings.ToLower(strings.TrimSpace(name))] {
+				onlyLegacyNames = false
+			}
+		}
+		if err := associations.Err(); err != nil {
+			associations.Close()
+			return err
+		}
+		if err := associations.Close(); err != nil {
+			return err
+		}
+
+		if hasAssociations && onlyLegacyNames && !hasStructuredQuantity {
+			if err := syncRecipeIngredientsTx(tx, recipe.id, recipe.names); err != nil {
 				return err
 			}
 		}
+	}
+	if _, err := tx.Exec(`INSERT INTO schema_migrations(version) VALUES(2)`); err != nil {
+		return err
+	}
+	return tx.Commit()
+}
+
+func migrateLegacyPantryTable(db *sql.DB) error {
+	rows, err := db.Query(`PRAGMA table_info(pantry_items)`)
+	if err != nil {
+		return err
+	}
+	columns := make(map[string]bool)
+	for rows.Next() {
+		var cid, notNull, primaryKey int
+		var name, columnType string
+		var defaultValue sql.NullString
+		if err := rows.Scan(&cid, &name, &columnType, &notNull, &defaultValue, &primaryKey); err != nil {
+			rows.Close()
+			return err
+		}
+		columns[name] = true
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return err
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	if columns["ingredient_id"] {
+		return nil
+	}
+	if !columns["ingredient"] {
+		return errors.New("legacy pantry table has no ingredient column")
+	}
+
+	legacyQuery := `SELECT ingredient, 0, NULL FROM pantry_items`
+	if columns["quantity"] && columns["unit"] {
+		legacyQuery = `SELECT ingredient, quantity, unit FROM pantry_items`
+	} else if columns["quantity"] {
+		legacyQuery = `SELECT ingredient, quantity, NULL FROM pantry_items`
+	}
+	legacyRows, err := db.Query(legacyQuery)
+	if err != nil {
+		return err
+	}
+	type pantryStock struct {
+		name     string
+		quantity float64
+		unit     sql.NullString
+	}
+	var stock []pantryStock
+	for legacyRows.Next() {
+		var item pantryStock
+		if err := legacyRows.Scan(&item.name, &item.quantity, &item.unit); err != nil {
+			legacyRows.Close()
+			return err
+		}
+		stock = append(stock, item)
+	}
+	if err := legacyRows.Err(); err != nil {
+		legacyRows.Close()
+		return err
+	}
+	if err := legacyRows.Close(); err != nil {
+		return err
+	}
+
+	tx, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	if _, err := tx.Exec(`ALTER TABLE pantry_items RENAME TO pantry_items_legacy`); err != nil {
+		return err
+	}
+	if _, err := tx.Exec(`CREATE TABLE pantry_items (
+  ingredient_id INTEGER PRIMARY KEY REFERENCES ingredients(ingredient_id),
+  quantity REAL NOT NULL DEFAULT 0,
+  unit TEXT
+)`); err != nil {
+		return err
+	}
+	for _, item := range stock {
+		name := strings.TrimSpace(item.name)
+		if name == "" {
+			continue
+		}
+		if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO pantry_items(ingredient_id,quantity,unit)
+ SELECT ingredient_id,?,? FROM ingredients WHERE name=?`, item.quantity, item.unit, name); err != nil {
+			return err
+		}
+	}
+	if _, err := tx.Exec(`DROP TABLE pantry_items_legacy`); err != nil {
+		return err
 	}
 	return tx.Commit()
 }
@@ -214,13 +376,16 @@ func migratePantryQuantityColumns(db *sql.DB) error {
 	if err := rows.Close(); err != nil {
 		return err
 	}
+	if !columns["ingredient_id"] {
+		return errors.New("pantry table migration did not produce ingredient_id")
+	}
 	if !columns["quantity"] {
 		if _, err := db.Exec(`ALTER TABLE pantry_items ADD COLUMN quantity REAL NOT NULL DEFAULT 0`); err != nil {
 			return err
 		}
 	}
 	if !columns["unit"] {
-		if _, err := db.Exec(`ALTER TABLE pantry_items ADD COLUMN unit TEXT NOT NULL DEFAULT ''`); err != nil {
+		if _, err := db.Exec(`ALTER TABLE pantry_items ADD COLUMN unit TEXT`); err != nil {
 			return err
 		}
 	}
@@ -228,225 +393,6 @@ func migratePantryQuantityColumns(db *sql.DB) error {
 }
 
 func (r *SQLiteRepository) Close() error { return r.db.Close() }
-
-func (r *SQLiteRepository) syncRecipeIngredients(recipe Recipe) error {
-	tx, err := r.db.Begin()
-	if err != nil {
-		return err
-	}
-	defer tx.Rollback()
-
-	if _, err := tx.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id=?`, recipe.ID); err != nil {
-		return err
-	}
-	for _, name := range recipe.Ingredients {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
-			return err
-		}
-		if _, err := tx.Exec(`INSERT INTO recipe_ingredients(recipe_id, ingredient_id) SELECT ?, ingredient_id FROM ingredients WHERE name=? ON CONFLICT(recipe_id, ingredient_id) DO NOTHING`, recipe.ID, name); err != nil {
-			return err
-		}
-	}
-	return tx.Commit()
-}
-
-func (r *SQLiteRepository) ListIngredients() ([]Ingredient, error) {
-	rows, err := r.db.Query(`SELECT ingredient_id, name FROM ingredients ORDER BY name COLLATE NOCASE`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []Ingredient{}
-	for rows.Next() {
-		var item Ingredient
-		if err := rows.Scan(&item.ID, &item.Name); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func (r *SQLiteRepository) CreateIngredient(item Ingredient) (Ingredient, error) {
-	item.Name = strings.TrimSpace(item.Name)
-	if item.Name == "" {
-		return Ingredient{}, errors.New("ingredient name is required")
-	}
-	err := r.db.QueryRow(`INSERT INTO ingredients(name) VALUES (?) RETURNING ingredient_id, name`, item.Name).Scan(&item.ID, &item.Name)
-	return item, err
-}
-
-func (r *SQLiteRepository) DeleteIngredient(id int) error {
-	result, err := r.db.Exec(`DELETE FROM ingredients WHERE ingredient_id=?`, id)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
-func (r *SQLiteRepository) ListGroceryItems() ([]GroceryItem, error) {
-	rows, err := r.db.Query(`SELECT grocery_item_id, ingredient_id, name, quantity, unit, purchased FROM grocery_items ORDER BY grocery_item_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []GroceryItem{}
-	for rows.Next() {
-		var item GroceryItem
-		var ingredientID sql.NullInt64
-		var name, unit sql.NullString
-		var quantity sql.NullFloat64
-		var purchased int
-		if err := rows.Scan(&item.ID, &ingredientID, &name, &quantity, &unit, &purchased); err != nil {
-			return nil, err
-		}
-		if ingredientID.Valid {
-			value := int(ingredientID.Int64)
-			item.IngredientID = &value
-		}
-		if name.Valid {
-			value := name.String
-			item.Name = &value
-		}
-		if quantity.Valid {
-			value := quantity.Float64
-			item.Quantity = &value
-		}
-		if unit.Valid {
-			value := unit.String
-			item.Unit = &value
-		}
-		item.Purchased = purchased != 0
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func (r *SQLiteRepository) CreateGroceryItem(item GroceryItem) (GroceryItem, error) {
-	result, err := r.db.Exec(`INSERT INTO grocery_items(ingredient_id, name, quantity, unit, purchased) VALUES (?, ?, ?, ?, ?)`,
-		item.IngredientID, item.Name, item.Quantity, item.Unit, item.Purchased)
-	if err != nil {
-		return GroceryItem{}, err
-	}
-	id, err := result.LastInsertId()
-	if err == nil {
-		item.ID = int(id)
-	}
-	return item, err
-}
-
-func (r *SQLiteRepository) DeleteGroceryItem(id int) error {
-	result, err := r.db.Exec(`DELETE FROM grocery_items WHERE grocery_item_id=?`, id)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return sql.ErrNoRows
-	}
-	return nil
-}
-
-func (r *SQLiteRepository) ListPantryItems() ([]PantryItem, error) {
-	rows, err := r.db.Query(`SELECT pantry_item_id, ingredient, quantity, unit FROM pantry_items ORDER BY ingredient COLLATE NOCASE, pantry_item_id`)
-	if err != nil {
-		return nil, err
-	}
-	defer rows.Close()
-	items := []PantryItem{}
-	for rows.Next() {
-		var item PantryItem
-		if err := rows.Scan(&item.ID, &item.Ingredient, &item.Quantity, &item.Unit); err != nil {
-			return nil, err
-		}
-		items = append(items, item)
-	}
-	return items, rows.Err()
-}
-
-func (r *SQLiteRepository) AddPantryItem(item PantryItem) (PantryItem, error) {
-	if err := item.Validate(); err != nil {
-		return PantryItem{}, err
-	}
-	item.Ingredient = strings.TrimSpace(item.Ingredient)
-	tx, err := r.db.Begin()
-	if err != nil {
-		return PantryItem{}, err
-	}
-	defer tx.Rollback()
-	if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, item.Ingredient); err != nil {
-		return PantryItem{}, err
-	}
-	result, err := tx.Exec(`INSERT INTO pantry_items(ingredient, quantity, unit) VALUES (?, ?, ?) ON CONFLICT(ingredient) DO NOTHING`, item.Ingredient, item.Quantity, item.Unit)
-	if err != nil {
-		return PantryItem{}, err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return PantryItem{}, err
-	}
-	if count == 0 {
-		return PantryItem{}, ErrPantryItemExists
-	}
-	id, err := result.LastInsertId()
-	if err != nil {
-		return PantryItem{}, err
-	}
-	item.ID = int(id)
-	if err := tx.Commit(); err != nil {
-		return PantryItem{}, err
-	}
-	return item, nil
-}
-
-func (r *SQLiteRepository) UpdatePantryItem(id int, quantity PantryQuantity) (PantryItem, error) {
-	if err := quantity.Validate(); err != nil {
-		return PantryItem{}, err
-	}
-	result, err := r.db.Exec(`UPDATE pantry_items SET quantity = ?, unit = ? WHERE pantry_item_id = ?`, quantity.Quantity, quantity.Unit, id)
-	if err != nil {
-		return PantryItem{}, err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return PantryItem{}, err
-	}
-	if count == 0 {
-		return PantryItem{}, ErrPantryItemNotFound
-	}
-	item := PantryItem{ID: id, Quantity: quantity.Quantity, Unit: quantity.Unit}
-	err = r.db.QueryRow(`SELECT ingredient FROM pantry_items WHERE pantry_item_id = ?`, id).Scan(&item.Ingredient)
-	return item, err
-}
-
-func (r *SQLiteRepository) DeletePantryItem(id int) error {
-	result, err := r.db.Exec(`DELETE FROM pantry_items WHERE pantry_item_id = ?`, id)
-	if err != nil {
-		return err
-	}
-	count, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if count == 0 {
-		return ErrPantryItemNotFound
-	}
-	return nil
-}
 
 func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err := recipe.Validate(); err != nil {
@@ -466,16 +412,24 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
+	tx, err := r.db.Begin()
+	if err != nil {
+		return Recipe{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
 	if err != nil {
 		return Recipe{}, err
 	}
 	id, err := result.LastInsertId()
-	recipe.ID = int(id)
-	if err := r.syncRecipeIngredients(recipe); err != nil {
+	if err != nil {
 		return Recipe{}, err
 	}
-	return recipe, err
+	recipe.ID = int(id)
+	if err = syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
+		return Recipe{}, err
+	}
+	return recipe, tx.Commit()
 }
 
 func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
@@ -521,7 +475,12 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if err != nil {
 		return Recipe{}, err
 	}
-	result, err := r.db.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
+	tx, err := r.db.Begin()
+	if err != nil {
+		return Recipe{}, err
+	}
+	defer tx.Rollback()
+	result, err := tx.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -532,11 +491,11 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if count == 0 {
 		return Recipe{}, ErrRecipeNotFound
 	}
-	recipe.Name = strings.TrimSpace(recipe.Name)
-	if err := r.syncRecipeIngredients(recipe); err != nil {
+	if err := syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
 		return Recipe{}, err
 	}
-	return recipe, nil
+	recipe.Name = strings.TrimSpace(recipe.Name)
+	return recipe, tx.Commit()
 }
 
 func (r *SQLiteRepository) DeleteRecipe(id int) error {
@@ -681,7 +640,6 @@ func (r *SQLiteRepository) RemoveMeal(dayID int, mealType MealType) error {
 
 type scanner interface{ Scan(...any) error }
 
-// scanRecipe supports both database rows and a single-row query result.
 func scanRecipe(row scanner) (Recipe, error) {
 	var recipe Recipe
 	var ingredients, instructions string
