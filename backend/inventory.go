@@ -8,6 +8,8 @@ import (
 	"strings"
 )
 
+var ErrIngredientInUse = errors.New("ingredient is referenced by saved data")
+
 func syncRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
 	var exists int
 	if err := tx.QueryRow(`SELECT COUNT(*) FROM recipes WHERE recipe_id=?`, recipeID).Scan(&exists); err != nil {
@@ -16,16 +18,15 @@ func syncRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
 	if exists == 0 {
 		return ErrRecipeNotFound
 	}
-	var err error
-	for _, name := range names {
-		name = strings.TrimSpace(name)
-		if name == "" {
-			continue
-		}
-		if _, err = tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+	parsedLines := parseRecipeIngredientLines(names)
+	for _, line := range parsedLines {
+		if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, line.name); err != nil {
 			return err
 		}
-		if _, err = tx.Exec(`INSERT INTO recipe_ingredients(recipe_id, ingredient_id) SELECT ?, ingredient_id FROM ingredients WHERE name=? ON CONFLICT(recipe_id, ingredient_id) DO NOTHING`, recipeID, name); err != nil {
+		if _, err := tx.Exec(`INSERT INTO recipe_ingredients(recipe_id, ingredient_id, quantity, unit)
+ SELECT ?, ingredient_id, ?, ? FROM ingredients WHERE name=?
+ ON CONFLICT(recipe_id, ingredient_id) DO UPDATE SET quantity=excluded.quantity, unit=excluded.unit`,
+			recipeID, line.quantity, line.unit, line.name); err != nil {
 			return err
 		}
 	}
@@ -53,14 +54,35 @@ func syncRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
 	}
 	rows.Close()
 	keep := map[string]bool{}
-	for _, n := range names {
-		keep[strings.ToLower(strings.TrimSpace(n))] = true
+	for _, line := range parsedLines {
+		keep[strings.ToLower(line.name)] = true
 	}
 	for _, a := range all {
 		if !keep[strings.ToLower(a.name)] {
 			if _, err = tx.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id=? AND ingredient_id=?`, recipeID, a.id); err != nil {
 				return err
 			}
+		}
+	}
+	return nil
+}
+
+func importRecipeIngredientsTx(tx *sql.Tx, recipeID int, names []string) error {
+	var existing int
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM recipe_ingredients WHERE recipe_id=?`, recipeID).Scan(&existing); err != nil {
+		return err
+	}
+	if existing > 0 {
+		return nil
+	}
+	for _, line := range parseRecipeIngredientLines(names) {
+		if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, line.name); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO recipe_ingredients(recipe_id, ingredient_id, quantity, unit)
+ SELECT ?, ingredient_id, ?, ? FROM ingredients WHERE name=?
+ ON CONFLICT(recipe_id, ingredient_id) DO NOTHING`, recipeID, line.quantity, line.unit, line.name); err != nil {
+			return err
 		}
 	}
 	return nil
@@ -77,6 +99,12 @@ func (r *SQLiteRepository) CreateIngredient(v Ingredient) (Ingredient, error) {
 func (r *SQLiteRepository) GetIngredient(id int) (Ingredient, error) {
 	var v Ingredient
 	e := r.db.QueryRow(`SELECT ingredient_id,name FROM ingredients WHERE ingredient_id=?`, id).Scan(&v.ID, &v.Name)
+	return v, e
+}
+
+func (r *SQLiteRepository) GetIngredientByName(name string) (Ingredient, error) {
+	var v Ingredient
+	e := r.db.QueryRow(`SELECT ingredient_id,name FROM ingredients WHERE name=? COLLATE NOCASE`, strings.TrimSpace(name)).Scan(&v.ID, &v.Name)
 	return v, e
 }
 func (r *SQLiteRepository) ListIngredients() ([]Ingredient, error) {
@@ -111,15 +139,34 @@ func (r *SQLiteRepository) UpdateIngredient(v Ingredient) (Ingredient, error) {
 	return v, e
 }
 func (r *SQLiteRepository) DeleteIngredient(id int) error {
-	res, e := r.db.Exec(`DELETE FROM ingredients WHERE ingredient_id=?`, id)
-	if e != nil {
-		return e
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
 	}
-	n, e := res.RowsAffected()
-	if e == nil && n == 0 {
-		e = sql.ErrNoRows
+	defer tx.Rollback()
+
+	var references int
+	if err := tx.QueryRow(`SELECT
+		(SELECT COUNT(*) FROM recipe_ingredients WHERE ingredient_id=?) +
+		(SELECT COUNT(*) FROM pantry_items WHERE ingredient_id=?) +
+		(SELECT COUNT(*) FROM grocery_items WHERE ingredient_id=?)`, id, id, id).Scan(&references); err != nil {
+		return err
 	}
-	return e
+	if references > 0 {
+		return ErrIngredientInUse
+	}
+	res, err := tx.Exec(`DELETE FROM ingredients WHERE ingredient_id=?`, id)
+	if err != nil {
+		return err
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		return sql.ErrNoRows
+	}
+	return tx.Commit()
 }
 
 func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngredient) error {
@@ -158,18 +205,30 @@ func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngr
 			return e
 		}
 	}
-	rows, e := tx.Query(`SELECT i.name FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE ri.recipe_id=? ORDER BY ri.ingredient_id`, recipeID)
+	rows, e := tx.Query(`SELECT i.name,ri.quantity,ri.unit FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE ri.recipe_id=? ORDER BY ri.ingredient_id`, recipeID)
 	if e != nil {
 		return e
 	}
 	names := []string{}
 	for rows.Next() {
 		var name string
-		if e = rows.Scan(&name); e != nil {
+		var quantity sql.NullFloat64
+		var unit sql.NullString
+		if e = rows.Scan(&name, &quantity, &unit); e != nil {
 			rows.Close()
 			return e
 		}
-		names = append(names, name)
+		var quantityValue *float64
+		if quantity.Valid {
+			value := quantity.Float64
+			quantityValue = &value
+		}
+		var unitValue *string
+		if unit.Valid {
+			value := unit.String
+			unitValue = &value
+		}
+		names = append(names, formatRecipeIngredientLine(name, quantityValue, unitValue))
 	}
 	if e = rows.Err(); e != nil {
 		rows.Close()
@@ -228,6 +287,64 @@ func (r *SQLiteRepository) PutPantryItem(v PantryItem) error {
 	}
 	_, e := r.db.Exec(`INSERT INTO pantry_items(ingredient_id,quantity,unit) VALUES(?,?,?) ON CONFLICT(ingredient_id) DO UPDATE SET quantity=excluded.quantity,unit=excluded.unit`, v.IngredientID, v.Quantity, v.Unit)
 	return e
+}
+
+func (r *SQLiteRepository) AddPantryItem(v PantryItem) (PantryItem, bool, error) {
+	if v.IngredientID <= 0 {
+		return PantryItem{}, false, errors.New("ingredient id must be positive")
+	}
+	if v.Unit == nil {
+		return PantryItem{}, false, errors.New("pantry unit is required")
+	}
+	unit := strings.TrimSpace(*v.Unit)
+	if err := (PantryQuantity{Quantity: v.Quantity, Unit: unit}).Validate(); err != nil {
+		return PantryItem{}, false, err
+	}
+	v.Unit = &unit
+
+	tx, err := r.db.Begin()
+	if err != nil {
+		return PantryItem{}, false, err
+	}
+	defer tx.Rollback()
+
+	result, err := tx.Exec(`INSERT INTO pantry_items(ingredient_id,quantity,unit) VALUES(?,?,?)
+ ON CONFLICT(ingredient_id) DO NOTHING`, v.IngredientID, v.Quantity, unit)
+	if err != nil {
+		return PantryItem{}, false, err
+	}
+	inserted, err := result.RowsAffected()
+	if err != nil {
+		return PantryItem{}, false, err
+	}
+	if inserted == 0 {
+		result, err = tx.Exec(`UPDATE pantry_items SET quantity=quantity+?
+ WHERE ingredient_id=? AND unit=?`, v.Quantity, v.IngredientID, unit)
+		if err != nil {
+			return PantryItem{}, false, err
+		}
+		updated, err := result.RowsAffected()
+		if err != nil {
+			return PantryItem{}, false, err
+		}
+		if updated == 0 {
+			var existingUnit sql.NullString
+			if err := tx.QueryRow(`SELECT unit FROM pantry_items WHERE ingredient_id=?`, v.IngredientID).Scan(&existingUnit); err != nil {
+				return PantryItem{}, false, err
+			}
+			if !existingUnit.Valid || existingUnit.String != unit {
+				return PantryItem{}, false, ErrPantryUnitMismatch
+			}
+			return PantryItem{}, false, errors.New("pantry quantity was not updated")
+		}
+		if err := tx.QueryRow(`SELECT quantity FROM pantry_items WHERE ingredient_id=?`, v.IngredientID).Scan(&v.Quantity); err != nil {
+			return PantryItem{}, false, err
+		}
+	}
+	if err := tx.Commit(); err != nil {
+		return PantryItem{}, false, err
+	}
+	return v, inserted == 1, nil
 }
 func (r *SQLiteRepository) ListPantryItems() ([]PantryItem, error) {
 	rows, e := r.db.Query(`SELECT p.ingredient_id,i.name,p.quantity,p.unit FROM pantry_items p JOIN ingredients i USING(ingredient_id) ORDER BY i.name COLLATE NOCASE`)
