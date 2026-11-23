@@ -1,6 +1,5 @@
 package main
 
-// Domain types and validation rules shared by handlers and SQLite repositories.
 import (
 	"errors"
 	"math"
@@ -8,9 +7,8 @@ import (
 )
 
 var (
-	ErrRecipeNameRequired       = errors.New("recipe name is required")
-	ErrPantryIngredientRequired = errors.New("pantry ingredient is required")
-	ErrPantryQuantityInvalid    = errors.New("pantry quantity or unit is invalid")
+	ErrRecipeNameRequired = errors.New("recipe name is required")
+	ErrPantryUnitMismatch = errors.New("pantry item already uses a different unit")
 )
 
 // Recipe is the application model for a saved recipe. Persistence is handled
@@ -22,19 +20,34 @@ type Recipe struct {
 	Instructions []string `json:"instructions"`
 }
 
-// Ingredient is the normalized identity used across recipes and inventory.
-// Legacy []string recipe ingredients remain the public and UI representation.
+// Ingredient is a reusable ingredient identity shared across recipes, pantry,
+// and grocery items.
 type Ingredient struct {
 	ID   int    `json:"id"`
 	Name string `json:"name"`
 }
-
 type RecipeIngredient struct {
 	RecipeID     int        `json:"recipe_id"`
 	IngredientID int        `json:"ingredient_id"`
 	Ingredient   Ingredient `json:"ingredient,omitempty"`
 	Quantity     *float64   `json:"quantity"`
 	Unit         *string    `json:"unit"`
+}
+
+func (v RecipeIngredient) Validate() error {
+	if v.RecipeID <= 0 {
+		return errors.New("recipe id must be positive")
+	}
+	if v.IngredientID <= 0 {
+		return errors.New("ingredient id must be positive")
+	}
+	if v.Quantity != nil && (math.IsNaN(*v.Quantity) || math.IsInf(*v.Quantity, 0) || *v.Quantity < 0) {
+		return errors.New("recipe ingredient quantity must be a finite non-negative number")
+	}
+	if v.Unit != nil && strings.TrimSpace(*v.Unit) == "" {
+		return errors.New("recipe ingredient unit must not be empty")
+	}
+	return nil
 }
 
 type GroceryItem struct {
@@ -45,27 +58,11 @@ type GroceryItem struct {
 	Unit         *string  `json:"unit"`
 	Purchased    bool     `json:"purchased"`
 }
-
-func (r Recipe) Validate() error {
-	if strings.TrimSpace(r.Name) == "" {
-		return ErrRecipeNameRequired
-	}
-	return nil
-}
-
-// PantryItem is an ingredient saved in the user's pantry.
 type PantryItem struct {
-	ID         int     `json:"id"`
-	Ingredient string  `json:"ingredient"`
-	Quantity   float64 `json:"quantity"`
-	Unit       string  `json:"unit"`
-}
-
-func (item PantryItem) Validate() error {
-	if strings.TrimSpace(item.Ingredient) == "" {
-		return ErrPantryIngredientRequired
-	}
-	return (PantryQuantity{Quantity: item.Quantity, Unit: item.Unit}).Validate()
+	IngredientID int        `json:"ingredient_id"`
+	Ingredient   Ingredient `json:"ingredient,omitempty"`
+	Quantity     float64    `json:"quantity"`
+	Unit         *string    `json:"unit"`
 }
 
 type PantryQuantity struct {
@@ -75,15 +72,22 @@ type PantryQuantity struct {
 
 func (quantity PantryQuantity) Validate() error {
 	if quantity.Quantity <= 0 || math.IsNaN(quantity.Quantity) || math.IsInf(quantity.Quantity, 0) {
-		return ErrPantryQuantityInvalid
+		return errors.New("pantry quantity must be positive and finite")
 	}
 	switch quantity.Unit {
 	case "g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "cup", "fl oz", "piece",
 		"clove", "can", "bunch", "pinch", "dash", "package", "head", "slice", "stalk", "sprig", "handful":
 		return nil
 	default:
-		return ErrPantryQuantityInvalid
+		return errors.New("unsupported pantry unit")
 	}
+}
+
+func (r Recipe) Validate() error {
+	if strings.TrimSpace(r.Name) == "" {
+		return ErrRecipeNameRequired
+	}
+	return nil
 }
 
 // Day groups meal assignments for one calendar date.
