@@ -205,30 +205,18 @@ func (r *SQLiteRepository) SetRecipeIngredients(recipeID int, items []RecipeIngr
 			return e
 		}
 	}
-	rows, e := tx.Query(`SELECT i.name,ri.quantity,ri.unit FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE ri.recipe_id=? ORDER BY ri.ingredient_id`, recipeID)
+	rows, e := tx.Query(`SELECT i.name FROM recipe_ingredients ri JOIN ingredients i USING(ingredient_id) WHERE ri.recipe_id=? ORDER BY ri.ingredient_id`, recipeID)
 	if e != nil {
 		return e
 	}
 	names := []string{}
 	for rows.Next() {
 		var name string
-		var quantity sql.NullFloat64
-		var unit sql.NullString
-		if e = rows.Scan(&name, &quantity, &unit); e != nil {
+		if e = rows.Scan(&name); e != nil {
 			rows.Close()
 			return e
 		}
-		var quantityValue *float64
-		if quantity.Valid {
-			value := quantity.Float64
-			quantityValue = &value
-		}
-		var unitValue *string
-		if unit.Valid {
-			value := unit.String
-			unitValue = &value
-		}
-		names = append(names, formatRecipeIngredientLine(name, quantityValue, unitValue))
+		names = append(names, name)
 	}
 	if e = rows.Err(); e != nil {
 		rows.Close()
