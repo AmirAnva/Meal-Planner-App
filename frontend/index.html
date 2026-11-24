@@ -35,6 +35,9 @@
           Recipes
         </a>
       </li>
+      <li>
+        <a href="#" id="pantry-nav" class="nav-item" data-page="pantry" onclick="navigateTo('pantry'); return false;">Pantry</a>
+      </li>
     </ul>
 
 
@@ -66,6 +69,13 @@
       <input type="text" id="search-input" placeholder="Search recipes or ingredients…" oninput="handleSearch(this.value)" />
     </div>
 
+    <div class="recipe-availability-legend" aria-label="Recipe ingredient availability">
+      <span><i class="availability-dot enough" aria-hidden="true"></i>Enough ingredients</span>
+      <span><i class="availability-dot missing" aria-hidden="true"></i>Missing ingredients</span>
+      <span><i class="availability-dot check" aria-hidden="true"></i>Not enough or check quantities</span>
+      <span><i class="availability-dot unknown" aria-hidden="true"></i>Ingredient list unavailable</span>
+    </div>
+
     <!-- Recipe card grid -->
     <div class="recipe-grid" id="recipe-grid"></div>
 
@@ -84,7 +94,7 @@
     <div class="calendar-header-bar">
       <div>
         <h1 class="page-title">Meal Calendar</h1>
-        <p class="calendar-subtitle">Click any day to view or plan meals</p>
+        <p class="calendar-subtitle">The current week is highlighted. Today through the end of next month is editable; past dates are read-only.</p>
       </div>
       <div class="calendar-nav-controls">
         <button type="button" class="btn-cal-nav" onclick="changeMonth(-1)" title="Previous month" aria-label="Previous month">
@@ -102,6 +112,19 @@
       </div>
     </div>
 
+    <section class="shopping-summary" aria-labelledby="shopping-summary-title">
+      <div class="shopping-summary-heading">
+        <div>
+          <h2 id="shopping-summary-title">Shopping list · Today through next month</h2>
+          <p>Shortages are combined across meals scheduled from today through the end of next month. Weight-to-volume conversions are estimates for recognized ingredients.</p>
+        </div>
+        <span class="shopping-summary-count" id="shopping-summary-count">Loading</span>
+      </div>
+      <div id="shopping-summary-content" aria-live="polite">
+        <p class="shopping-summary-empty">Checking scheduled meals…</p>
+      </div>
+    </section>
+
     <!-- Calendar Month Grid Card -->
     <div class="calendar-card">
       <div class="calendar-weekdays">
@@ -114,6 +137,56 @@
 
   </main>
 
+  <main class="page-content" id="pantry-view" style="display:none">
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">My <span class="title-accent">Pantry</span></h1>
+        <p class="pantry-description">Keep track of ingredients you have on hand.</p>
+      </div>
+    </div>
+
+    <form class="pantry-form" onsubmit="submitPantryItem(event)">
+      <label class="pantry-field">
+        <span>Ingredient</span>
+        <input class="form-input" name="ingredient" type="text" placeholder="e.g. olive oil" required />
+      </label>
+      <label class="pantry-field pantry-quantity-field">
+        <span>Quantity</span>
+        <input class="form-input" name="quantity" type="number" min="0.001" step="any" placeholder="e.g. 1.5" required />
+      </label>
+      <label class="pantry-field pantry-unit-field">
+        <span>Unit</span>
+        <select class="form-input" name="unit" required>
+          <option value="g">g</option><option value="kg">kg</option><option value="oz">oz</option><option value="lb">lb</option>
+          <option value="ml">ml</option><option value="l">L</option><option value="tsp">tsp</option><option value="tbsp">tbsp</option>
+          <option value="cup">cup</option><option value="fl oz">fl oz</option><option value="piece">piece</option><option value="clove">clove</option>
+          <option value="can">can</option><option value="bunch">bunch</option><option value="pinch">pinch</option><option value="dash">dash</option>
+          <option value="package">package</option><option value="head">head</option><option value="slice">slice</option><option value="stalk">stalk</option>
+          <option value="sprig">sprig</option><option value="handful">handful</option>
+        </select>
+      </label>
+      <button class="btn-add pantry-submit" type="submit">Add ingredient</button>
+    </form>
+
+    <div class="pantry-unit-settings">
+      <div class="pantry-unit-settings-row">
+        <span>Display measurements in</span>
+        <div class="pantry-unit-toggle" role="group" aria-label="Pantry measurement system">
+          <button type="button" onclick="setPantryUnitSystem('metric')">Metric</button>
+          <button type="button" onclick="setPantryUnitSystem('us')">US customary</button>
+        </div>
+      </div>
+      <span class="pantry-unit-note">Weight-to-volume conversions are approximate and available for recognized ingredients only.</span>
+    </div>
+
+    <div class="pantry-list" id="pantry-list"></div>
+    <div class="empty-state" id="pantry-empty-state" style="display:none">
+      <span>🥕</span>
+      <p>Your pantry is empty.</p>
+      <p>Add ingredients you have on hand to keep them here.</p>
+    </div>
+  </main>
+
   <!-- DAY MEALS MODAL -->
   <div class="modal-backdrop" id="day-meals-backdrop" onclick="backdropDayMealsClick(event)" style="display:none">
     <div class="modal modal-day-meals">
@@ -122,6 +195,7 @@
         <div>
           <h2 id="day-modal-title">Meals for Day</h2>
           <span class="day-modal-subtitle" id="day-modal-subtitle">Meal Plan</span>
+          <p class="day-modal-warning" id="day-modal-warning" hidden></p>
         </div>
         <button class="modal-close" onclick="closeDayMealsModal()">&#x2715;</button>
       </div>
@@ -210,8 +284,9 @@
         <label class="form-label">Recipe Name <span class="required">*</span></label>
         <input class="form-input" id="f-name" type="text" placeholder="e.g. Avocado Toast" required />
 
-        <label class="form-label">Ingredients <span class="optional">(one per line)</span></label>
-        <textarea class="form-input form-textarea" id="f-ingredients" rows="3" placeholder="e.g.&#10;2 slices sourdough bread&#10;1 ripe avocado&#10;1 pinch red pepper flakes"></textarea>
+        <label class="form-label">Ingredients <span class="optional">(add one row per ingredient)</span></label>
+        <div class="recipe-ingredients-list" id="f-ingredients-list"></div>
+        <button type="button" id="add-ingredient-button" class="btn-secondary recipe-ingredient-add" onclick="addRecipeIngredientRow()">+ Add ingredient</button>
 
         <label class="form-label">Instructions <span class="optional">(one step per line)</span></label>
         <textarea class="form-input form-textarea" id="f-instructions" rows="3" placeholder="e.g.&#10;Toast bread until golden&#10;Mash avocado with salt and pepper&#10;Spread onto warm toast"></textarea>
