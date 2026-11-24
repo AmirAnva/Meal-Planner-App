@@ -6,7 +6,10 @@ import (
 	"strings"
 )
 
-var ErrRecipeNameRequired = errors.New("recipe name is required")
+var (
+	ErrRecipeNameRequired = errors.New("recipe name is required")
+	ErrPantryUnitMismatch = errors.New("pantry item already uses a different unit")
+)
 
 // Recipe is the application model for a saved recipe. Persistence is handled
 // by SQLiteRepository, keeping SQL concerns out of the model.
@@ -60,6 +63,24 @@ type PantryItem struct {
 	Ingredient   Ingredient `json:"ingredient,omitempty"`
 	Quantity     float64    `json:"quantity"`
 	Unit         *string    `json:"unit"`
+}
+
+type PantryQuantity struct {
+	Quantity float64 `json:"quantity"`
+	Unit     string  `json:"unit"`
+}
+
+func (quantity PantryQuantity) Validate() error {
+	if quantity.Quantity <= 0 || math.IsNaN(quantity.Quantity) || math.IsInf(quantity.Quantity, 0) {
+		return errors.New("pantry quantity must be positive and finite")
+	}
+	switch quantity.Unit {
+	case "g", "kg", "oz", "lb", "ml", "l", "tsp", "tbsp", "cup", "fl oz", "piece",
+		"clove", "can", "bunch", "pinch", "dash", "package", "head", "slice", "stalk", "sprig", "handful":
+		return nil
+	default:
+		return errors.New("unsupported pantry unit")
+	}
 }
 
 func (r Recipe) Validate() error {
