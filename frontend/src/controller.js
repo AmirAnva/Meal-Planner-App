@@ -373,6 +373,32 @@ async function removeMeal(mealType) {
   }
 }
 
+// ── Import recipe from link ───────────────────────────────────────
+async function submitImportURL(e) {
+  e.preventDefault();
+  const urlInput = document.getElementById('import-url-input');
+  const url = urlInput ? urlInput.value.trim() : '';
+  if (!url) return;
+
+  View.setImportLoading(true, 'Fetching webpage and analyzing recipe with Qwen...');
+
+  try {
+    const parsedRecipe = await apiFetch('/api/recipes/import-url', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url }),
+    });
+
+    View.setImportLoading(false);
+    View.closeImportModal();
+    View.populateRecipeForm(parsedRecipe);
+    View.showToast('Recipe extracted! Review and click Save Recipe.');
+  } catch (err) {
+    View.setImportLoading(false);
+    View.showImportError(err.message || 'Failed to import recipe from link.');
+  }
+}
+
 // ── Bind event handlers to window for inline HTML attributes ───────
 Object.assign(window, {
   navigateTo,
@@ -381,6 +407,10 @@ Object.assign(window, {
   handleSearch,
   openModal: View.openModal,
   closeModal: View.closeModal,
+  openImportModal: View.openImportModal,
+  closeImportModal: View.closeImportModal,
+  backdropImportClick: View.backdropImportClick,
+  submitImportURL,
   submitRecipe,
   openEditModal: (id) => View.openEditModal(id, recipes),
   removeRecipe,
@@ -405,6 +435,11 @@ Object.assign(window, {
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    const importModal = document.getElementById('import-modal-backdrop');
+    if (importModal && importModal.style.display !== 'none') {
+      View.closeImportModal();
+      return;
+    }
     const mealModal = document.getElementById('meal-modal-backdrop');
     if (mealModal && mealModal.style.display !== 'none') {
       View.closeMealModal();

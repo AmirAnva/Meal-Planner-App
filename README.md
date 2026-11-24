@@ -60,6 +60,21 @@ cd frontend
 npm run build
 ```
 
+## AI Recipe Importer (Qwen 2.5 via Ollama)
+
+The app supports importing recipes directly from webpage and food blog links using [Ollama](https://ollama.com) running `qwen2.5:1.5b`.
+
+1. Install and start Ollama on your machine.
+2. Pull the model:
+   ```sh
+   ollama run qwen2.5:1.5b
+   ```
+3. Run the backend as usual. If Ollama is running on a custom port or host, pass flags or set environment variables:
+   ```sh
+   go run . --ollama-host http://localhost:11434 --ollama-model qwen2.5:1.5b
+   ```
+4. Click **"Import from Link"** in the web interface, paste a recipe URL, and review the parsed recipe before saving.
+
 ## API endpoints
 
 | Method | Endpoint | Description |
@@ -67,6 +82,7 @@ npm run build
 | GET | `/api/recipes` | List all recipes |
 | GET | `/api/recipes/search?q={query}` | Search recipes by name or ingredient keyword |
 | POST | `/api/recipes` | Create a recipe |
+| POST | `/api/recipes/import-url` | Parse a recipe URL using Ollama + Qwen 2.5 |
 | PUT | `/api/recipes/{id}` | Update an existing recipe |
 | DELETE | `/api/recipes/{id}` | Delete a recipe |
 | GET | `/api/calendar?start=YYYY-MM-DD&days=7` | Get calendar days and assigned meals |

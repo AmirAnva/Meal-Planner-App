@@ -50,12 +50,21 @@
     <!-- Page header row -->
     <div class="page-header">
       <h1 class="page-title">Recipes &nbsp;<span class="title-accent">Favorites</span></h1>
-      <button class="btn-add" onclick="openModal()">
-        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
-          <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
-        </svg>
-        New Recipe
-      </button>
+      <div class="header-actions">
+        <button class="btn-secondary btn-import" onclick="openImportModal()">
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M10 13a5 5 0 0 0 7.54.54l3-3a5 5 0 0 0-7.07-7.07l-1.72 1.71"/>
+            <path d="M14 11a5 5 0 0 0-7.54-.54l-3 3a5 5 0 0 0 7.07 7.07l1.71-1.71"/>
+          </svg>
+          Import from Link
+        </button>
+        <button class="btn-add" onclick="openModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          New Recipe
+        </button>
+      </div>
     </div>
 
     <!-- Search toolbar -->
@@ -290,6 +299,55 @@
     </div>
   </div>
   <!--END SELECT MEAL RECIPE MODAL -->
+
+  <!-- IMPORT RECIPE FROM LINK MODAL -->
+  <div class="modal-backdrop" id="import-modal-backdrop" onclick="backdropImportClick(event)" style="display:none">
+    <div class="modal">
+
+      <div class="modal-header">
+        <div>
+          <h2>Import Recipe from Link</h2>
+          <span class="day-modal-subtitle">AI-assisted parsing with Qwen 2.5</span>
+        </div>
+        <button class="modal-close" onclick="closeImportModal()">&#x2715;</button>
+      </div>
+
+      <form class="modal-body" onsubmit="submitImportURL(event)">
+        <label class="form-label" for="import-url-input">Recipe or Blog URL <span class="required">*</span></label>
+        <input
+          class="form-input"
+          id="import-url-input"
+          type="url"
+          placeholder="https://example.com/recipe/..."
+          required
+        />
+        <p class="import-help-text">
+          Paste any food blog or recipe URL. Qwen 2.5 will extract the dish name, ingredients, and instructions into a clean recipe you can review before saving.
+        </p>
+
+        <div class="import-status" id="import-status" style="display:none">
+          <div class="spinner"></div>
+          <span id="import-status-text">Fetching page and extracting recipe with Qwen...</span>
+        </div>
+
+        <div class="import-error" id="import-error" style="display:none"></div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem;">
+          <button type="button" class="btn-secondary" id="btn-import-cancel" onclick="closeImportModal()">Cancel</button>
+          <button type="submit" class="btn-add" id="btn-import-submit">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+              <polyline points="7 10 12 15 17 10"/>
+              <line x1="12" y1="15" x2="12" y2="3"/>
+            </svg>
+            Parse Recipe
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+  <!-- END IMPORT RECIPE FROM LINK MODAL -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>
