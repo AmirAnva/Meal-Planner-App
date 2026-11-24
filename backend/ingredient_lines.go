@@ -268,11 +268,3 @@ func cleanIngredientName(name string, singularize bool) string {
 	words[len(words)-1] = last
 	return strings.Join(words, " ")
 }
-
-func formatRecipeIngredientLine(name string, quantity *float64, unit *string) string {
-	if quantity == nil || unit == nil {
-		return name
-	}
-	amount := strconv.FormatFloat(*quantity, 'f', -1, 64)
-	return amount + " " + *unit + " " + name
-}
