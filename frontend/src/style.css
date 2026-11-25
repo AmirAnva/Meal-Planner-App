@@ -932,13 +932,22 @@ body {
   border-color: #ededed;
 }
 
-.grocery-item-main {
+.grocery-item-left {
   display: flex;
   align-items: center;
   gap: 0.85rem;
   flex: 1;
+  min-width: 0;
+}
+
+.grocery-item-main {
+  display: flex;
+  align-items: center;
+  gap: 0.75rem;
+  flex: 1;
   cursor: pointer;
   user-select: none;
+  min-width: 0;
 }
 
 .grocery-checkbox {
@@ -948,6 +957,11 @@ body {
   accent-color: #2e7d32;
   cursor: pointer;
   flex-shrink: 0;
+}
+
+.grocery-checkbox:focus-visible {
+  outline: 2px solid #2e7d32;
+  outline-offset: 2px;
 }
 
 .grocery-item-name {

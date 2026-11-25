@@ -360,7 +360,7 @@
 
       <form class="modal-body" onsubmit="submitGroceryItem(event)">
         <label class="form-label">Item Name <span class="required">*</span></label>
-        <input class="form-input" id="g-name" type="text" placeholder="e.g. Whole Milk, Eggs, Olive Oil" required />
+        <input class="form-input" id="g-name" type="text" placeholder="e.g. Whole Milk, Eggs, Olive Oil" maxlength="120" required />
 
         <div class="form-row-2">
           <div>
@@ -369,7 +369,7 @@
           </div>
           <div>
             <label class="form-label">Unit <span class="optional">(optional)</span></label>
-            <input class="form-input" id="g-unit" type="text" placeholder="e.g. carton, cups, lbs" />
+            <input class="form-input" id="g-unit" type="text" placeholder="e.g. carton, cups, lbs" maxlength="30" />
           </div>
         </div>
 

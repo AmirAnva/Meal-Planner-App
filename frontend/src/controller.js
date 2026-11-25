@@ -20,6 +20,7 @@ let isRemovingMeal      = false;
 let groceryItems        = [];
 let groceryFilter       = 'all';
 let grocerySearchQuery  = '';
+const groceryItemUpdateVersions = new Map();
 
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
@@ -283,6 +284,18 @@ async function submitGroceryItem(e) {
     View.showToast('Item name is required');
     return;
   }
+  if (payload.name.length > 120) {
+    View.showToast('Item name must be 120 characters or less');
+    return;
+  }
+  if (payload.unit && payload.unit.length > 30) {
+    View.showToast('Unit must be 30 characters or less');
+    return;
+  }
+  if (payload.quantity !== null && (isNaN(payload.quantity) || payload.quantity < 0)) {
+    View.showToast('Quantity must be a positive number or zero');
+    return;
+  }
 
   try {
     const created = await apiFetch('/api/grocery-list', {
@@ -300,39 +313,51 @@ async function submitGroceryItem(e) {
 }
 
 async function toggleGroceryItem(id, purchased) {
-  const item = groceryItems.find(it => it.id === Number(id));
+  const numId = Number(id);
+  const item = groceryItems.find(it => it.id === numId);
   if (!item) return;
+
   const prevPurchased = item.purchased;
-  item.purchased = purchased;
+  item.purchased = Boolean(purchased);
   View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
 
+  const version = (groceryItemUpdateVersions.get(numId) || 0) + 1;
+  groceryItemUpdateVersions.set(numId, version);
+
   try {
-    const updated = await apiFetch(`/api/grocery-list/${id}`, {
+    const updated = await apiFetch(`/api/grocery-list/${numId}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
+        ingredient_id: item.ingredient_id ?? null,
         name: item.name,
         quantity: item.quantity,
         unit: item.unit,
-        purchased: purchased,
+        purchased: Boolean(purchased),
       }),
     });
-    const idx = groceryItems.findIndex(it => it.id === Number(id));
-    if (idx !== -1) groceryItems[idx] = updated;
-    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+
+    if (groceryItemUpdateVersions.get(numId) === version) {
+      const idx = groceryItems.findIndex(it => it.id === numId);
+      if (idx !== -1) groceryItems[idx] = updated;
+      View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+    }
   } catch (err) {
-    item.purchased = prevPurchased;
-    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
-    View.showToast('Could not update item: ' + err.message);
+    if (groceryItemUpdateVersions.get(numId) === version) {
+      item.purchased = prevPurchased;
+      View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+      View.showToast('Could not update item: ' + err.message);
+    }
   }
 }
 
 async function removeGroceryItem(id) {
-  const item = groceryItems.find(it => it.id === Number(id));
+  const numId = Number(id);
+  const item = groceryItems.find(it => it.id === numId);
   const name = (item && item.name) || 'item';
   try {
-    await apiFetch(`/api/grocery-list/${id}`, { method: 'DELETE' });
-    groceryItems = groceryItems.filter(it => it.id !== Number(id));
+    await apiFetch(`/api/grocery-list/${numId}`, { method: 'DELETE' });
+    groceryItems = groceryItems.filter(it => it.id !== numId);
     View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
     View.showToast(`"${name}" removed.`);
   } catch (err) {
@@ -345,14 +370,22 @@ async function clearPurchasedGroceryItems() {
   if (purchased.length === 0) return;
   if (!window.confirm(`Remove ${purchased.length} purchased item${purchased.length === 1 ? '' : 's'}?`)) return;
 
-  try {
-    await Promise.all(purchased.map(it => apiFetch(`/api/grocery-list/${it.id}`, { method: 'DELETE' })));
-    groceryItems = groceryItems.filter(it => !it.purchased);
-    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+  const failed = [];
+  // Delete sequentially to avoid SQLite locking on concurrent writes
+  for (const it of purchased) {
+    try {
+      await apiFetch(`/api/grocery-list/${it.id}`, { method: 'DELETE' });
+      groceryItems = groceryItems.filter(item => item.id !== it.id);
+    } catch (_) {
+      failed.push(it);
+    }
+  }
+
+  View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+  if (failed.length === 0) {
     View.showToast('Purchased items cleared.');
-  } catch (err) {
-    View.showToast('Could not clear some items: ' + err.message);
-    loadGroceryItems();
+  } else {
+    View.showToast(`Could not clear ${failed.length} item(s).`);
   }
 }
 

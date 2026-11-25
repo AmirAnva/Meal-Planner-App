@@ -530,6 +530,7 @@ export function renderGroceryList(items = [], filter = 'all', searchQuery = '') 
   });
 
   container.innerHTML = sorted.map(item => {
+    const numId = Number(item.id);
     let qtyText = '';
     if (item.quantity !== null && item.quantity !== undefined && item.quantity > 0) {
       const q = Number(item.quantity);
@@ -540,23 +541,27 @@ export function renderGroceryList(items = [], filter = 'all', searchQuery = '') 
     }
 
     return `
-      <div class="grocery-item ${item.purchased ? 'purchased' : ''}" id="grocery-item-${item.id}">
-        <label class="grocery-item-main" onclick="event.preventDefault(); toggleGroceryItem(${item.id}, ${!item.purchased});">
+      <div class="grocery-item ${item.purchased ? 'purchased' : ''}" id="grocery-item-${numId}">
+        <div class="grocery-item-left">
           <input
             type="checkbox"
+            id="g-check-${numId}"
             class="grocery-checkbox"
             ${item.purchased ? 'checked' : ''}
-            tabindex="-1"
+            onchange="toggleGroceryItem(${numId}, this.checked)"
+            aria-label="${escapeHTML(item.name || 'Item')}"
           />
-          <span class="grocery-item-name">${escapeHTML(item.name || 'Unnamed Item')}</span>
-          ${qtyText ? `<span class="grocery-item-badge">${escapeHTML(qtyText)}</span>` : ''}
-        </label>
+          <label for="g-check-${numId}" class="grocery-item-main">
+            <span class="grocery-item-name">${escapeHTML(item.name || 'Unnamed Item')}</span>
+            ${qtyText ? `<span class="grocery-item-badge">${escapeHTML(qtyText)}</span>` : ''}
+          </label>
+        </div>
         <button
           type="button"
           class="grocery-item-delete"
-          onclick="event.stopPropagation(); removeGroceryItem(${item.id})"
+          onclick="event.stopPropagation(); removeGroceryItem(${numId})"
           title="Remove from list"
-          aria-label="Remove item"
+          aria-label="Remove ${escapeHTML(item.name || 'item')}"
         >
           &#x2715;
         </button>
