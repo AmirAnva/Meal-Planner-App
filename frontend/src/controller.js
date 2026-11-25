@@ -16,6 +16,11 @@ let calendarAbortController = null;
 let isSavingMeal        = false;
 let isRemovingMeal      = false;
 
+// Grocery State
+let groceryItems        = [];
+let groceryFilter       = 'all';
+let grocerySearchQuery  = '';
+
 // ── API helper ────────────────────────────────────────────────────
 async function apiFetch(path, options = {}) {
   const res = await fetch(path, options);
@@ -217,22 +222,32 @@ async function handleSearch(val) {
 // ── Page navigation ───────────────────────────────────────────────
 function navigateTo(page) {
   const isRecipes = page === 'recipes';
+  const isCalendar = page === 'calendar';
+  const isGrocery = page === 'grocery';
 
   const recipesView = document.getElementById('recipes-view');
   if (recipesView) recipesView.style.display = isRecipes ? 'block' : 'none';
 
   const calendarView = document.getElementById('calendar-view');
-  if (calendarView) calendarView.style.display = isRecipes ? 'none' : 'block';
+  if (calendarView) calendarView.style.display = isCalendar ? 'block' : 'none';
+
+  const groceryView = document.getElementById('grocery-view');
+  if (groceryView) groceryView.style.display = isGrocery ? 'block' : 'none';
 
   document.querySelectorAll('.nav-item').forEach(link => {
     link.classList.toggle(
       'active',
-      link.dataset.page === page || (isRecipes && link.id === 'recipes-nav') || (!isRecipes && link.id === 'calendar-nav')
+      link.dataset.page === page ||
+      (isRecipes && link.id === 'recipes-nav') ||
+      (isCalendar && link.id === 'calendar-nav') ||
+      (isGrocery && link.id === 'grocery-nav')
     );
   });
 
-  if (!isRecipes) {
+  if (isCalendar) {
     loadCalendar(currentYear, currentMonth);
+  } else if (isGrocery) {
+    loadGroceryItems();
   }
 
   window.scrollTo(0, 0);
@@ -244,6 +259,114 @@ function showCalendar() {
 
 function showRecipes() {
   navigateTo('recipes');
+}
+
+function showGrocery() {
+  navigateTo('grocery');
+}
+
+// ── Grocery List Controller ────────────────────────────────────────
+async function loadGroceryItems() {
+  try {
+    const data = await apiFetch('/api/grocery-list');
+    groceryItems = Array.isArray(data) ? data : [];
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+  } catch (err) {
+    View.showToast('Could not load grocery list: ' + err.message);
+  }
+}
+
+async function submitGroceryItem(e) {
+  e.preventDefault();
+  const payload = View.readGroceryForm();
+  if (!payload.name) {
+    View.showToast('Item name is required');
+    return;
+  }
+
+  try {
+    const created = await apiFetch('/api/grocery-list', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+    });
+    groceryItems.push(created);
+    View.closeGroceryModal();
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+    View.showToast(`"${created.name}" added to grocery list!`);
+  } catch (err) {
+    View.showToast('Could not add item: ' + err.message);
+  }
+}
+
+async function toggleGroceryItem(id, purchased) {
+  const item = groceryItems.find(it => it.id === Number(id));
+  if (!item) return;
+  const prevPurchased = item.purchased;
+  item.purchased = purchased;
+  View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+
+  try {
+    const updated = await apiFetch(`/api/grocery-list/${id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: item.name,
+        quantity: item.quantity,
+        unit: item.unit,
+        purchased: purchased,
+      }),
+    });
+    const idx = groceryItems.findIndex(it => it.id === Number(id));
+    if (idx !== -1) groceryItems[idx] = updated;
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+  } catch (err) {
+    item.purchased = prevPurchased;
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+    View.showToast('Could not update item: ' + err.message);
+  }
+}
+
+async function removeGroceryItem(id) {
+  const item = groceryItems.find(it => it.id === Number(id));
+  const name = (item && item.name) || 'item';
+  try {
+    await apiFetch(`/api/grocery-list/${id}`, { method: 'DELETE' });
+    groceryItems = groceryItems.filter(it => it.id !== Number(id));
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+    View.showToast(`"${name}" removed.`);
+  } catch (err) {
+    View.showToast('Could not remove item: ' + err.message);
+  }
+}
+
+async function clearPurchasedGroceryItems() {
+  const purchased = groceryItems.filter(it => it.purchased);
+  if (purchased.length === 0) return;
+  if (!window.confirm(`Remove ${purchased.length} purchased item${purchased.length === 1 ? '' : 's'}?`)) return;
+
+  try {
+    await Promise.all(purchased.map(it => apiFetch(`/api/grocery-list/${it.id}`, { method: 'DELETE' })));
+    groceryItems = groceryItems.filter(it => !it.purchased);
+    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+    View.showToast('Purchased items cleared.');
+  } catch (err) {
+    View.showToast('Could not clear some items: ' + err.message);
+    loadGroceryItems();
+  }
+}
+
+function setGroceryFilter(filter) {
+  groceryFilter = filter;
+  document.querySelectorAll('#grocery-filter-tabs .filter-tab').forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
+}
+
+function handleGrocerySearch(val) {
+  grocerySearchQuery = val;
+  View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
 }
 
 // ── Calendar date & month controls ────────────────────────────────
@@ -378,6 +501,7 @@ Object.assign(window, {
   navigateTo,
   showCalendar,
   showRecipes,
+  showGrocery,
   handleSearch,
   openModal: View.openModal,
   closeModal: View.closeModal,
@@ -400,11 +524,25 @@ Object.assign(window, {
   selectCalendarDay,
   closeDayMealsModal: View.closeDayMealsModal,
   backdropDayMealsClick: View.backdropDayMealsClick,
+  openGroceryModal: View.openGroceryModal,
+  closeGroceryModal: View.closeGroceryModal,
+  backdropGroceryClick: View.backdropGroceryClick,
+  submitGroceryItem,
+  toggleGroceryItem,
+  removeGroceryItem,
+  clearPurchasedGroceryItems,
+  setGroceryFilter,
+  handleGrocerySearch,
 });
 
 // ── Keyboard shortcuts ────────────────────────────────────────────
 document.addEventListener('keydown', e => {
   if (e.key === 'Escape') {
+    const groceryModal = document.getElementById('grocery-modal-backdrop');
+    if (groceryModal && groceryModal.style.display !== 'none') {
+      View.closeGroceryModal();
+      return;
+    }
     const mealModal = document.getElementById('meal-modal-backdrop');
     if (mealModal && mealModal.style.display !== 'none') {
       View.closeMealModal();

@@ -468,3 +468,137 @@ export function readRecipeForm() {
 export function getDetailRecipeId() {
   return document.getElementById('detail-recipe-id').value;
 }
+
+// ── Grocery list rendering ────────────────────────────────────────
+export function renderGroceryList(items = [], filter = 'all', searchQuery = '') {
+  const container = document.getElementById('grocery-list-container');
+  const emptyState = document.getElementById('grocery-empty-state');
+  const summaryElem = document.getElementById('grocery-summary');
+  const clearBtn = document.getElementById('btn-clear-purchased');
+  if (!container || !emptyState) return;
+
+  const totalCount = items.length;
+  const purchasedCount = items.filter(it => it.purchased).length;
+  const pendingCount = totalCount - purchasedCount;
+
+  if (summaryElem) {
+    summaryElem.textContent = `${totalCount} item${totalCount === 1 ? '' : 's'} • ${pendingCount} to buy${purchasedCount > 0 ? ` • ${purchasedCount} purchased` : ''}`;
+  }
+
+  if (clearBtn) {
+    clearBtn.style.display = purchasedCount > 0 ? 'inline-flex' : 'none';
+  }
+
+  // Filter items
+  const query = searchQuery.trim().toLowerCase();
+  let filtered = items;
+  if (query) {
+    filtered = filtered.filter(it => (it.name || '').toLowerCase().includes(query));
+  }
+  if (filter === 'pending') {
+    filtered = filtered.filter(it => !it.purchased);
+  } else if (filter === 'purchased') {
+    filtered = filtered.filter(it => it.purchased);
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '';
+    emptyState.style.display = 'block';
+    const emptyText = document.getElementById('grocery-empty-text');
+    if (emptyText) {
+      if (totalCount === 0) {
+        emptyText.textContent = 'Your grocery list is empty.';
+      } else if (filter === 'pending') {
+        emptyText.textContent = 'All items have been purchased!';
+      } else if (filter === 'purchased') {
+        emptyText.textContent = 'No purchased items yet.';
+      } else {
+        emptyText.textContent = 'No grocery items match your search.';
+      }
+    }
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  // Sort items: pending first, then purchased
+  const sorted = [...filtered].sort((a, b) => {
+    if (a.purchased === b.purchased) {
+      return (a.name || '').localeCompare(b.name || '');
+    }
+    return a.purchased ? 1 : -1;
+  });
+
+  container.innerHTML = sorted.map(item => {
+    let qtyText = '';
+    if (item.quantity !== null && item.quantity !== undefined && item.quantity > 0) {
+      const q = Number(item.quantity);
+      const formattedQ = Number.isInteger(q) ? q : q.toFixed(2).replace(/\.?0+$/, '');
+      qtyText = item.unit ? `${formattedQ} ${item.unit}` : `${formattedQ}`;
+    } else if (item.unit) {
+      qtyText = item.unit;
+    }
+
+    return `
+      <div class="grocery-item ${item.purchased ? 'purchased' : ''}" id="grocery-item-${item.id}">
+        <label class="grocery-item-main" onclick="event.preventDefault(); toggleGroceryItem(${item.id}, ${!item.purchased});">
+          <input
+            type="checkbox"
+            class="grocery-checkbox"
+            ${item.purchased ? 'checked' : ''}
+            tabindex="-1"
+          />
+          <span class="grocery-item-name">${escapeHTML(item.name || 'Unnamed Item')}</span>
+          ${qtyText ? `<span class="grocery-item-badge">${escapeHTML(qtyText)}</span>` : ''}
+        </label>
+        <button
+          type="button"
+          class="grocery-item-delete"
+          onclick="event.stopPropagation(); removeGroceryItem(${item.id})"
+          title="Remove from list"
+          aria-label="Remove item"
+        >
+          &#x2715;
+        </button>
+      </div>
+    `;
+  }).join('');
+}
+
+export function openGroceryModal() {
+  const backdrop = document.getElementById('grocery-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'flex';
+  const nameInput = document.getElementById('g-name');
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.focus();
+  }
+  const qtyInput = document.getElementById('g-quantity');
+  if (qtyInput) qtyInput.value = '';
+  const unitInput = document.getElementById('g-unit');
+  if (unitInput) unitInput.value = '';
+}
+
+export function closeGroceryModal() {
+  const backdrop = document.getElementById('grocery-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+  const nameInput = document.getElementById('g-name');
+  if (nameInput) nameInput.value = '';
+  const qtyInput = document.getElementById('g-quantity');
+  if (qtyInput) qtyInput.value = '';
+  const unitInput = document.getElementById('g-unit');
+  if (unitInput) unitInput.value = '';
+}
+
+export function backdropGroceryClick(e) {
+  if (e.target === e.currentTarget) closeGroceryModal();
+}
+
+export function readGroceryForm() {
+  const name = document.getElementById('g-name').value.trim();
+  const quantityVal = document.getElementById('g-quantity').value.trim();
+  const unitVal = document.getElementById('g-unit').value.trim();
+  const quantity = quantityVal !== '' ? parseFloat(quantityVal) : null;
+  const unit = unitVal !== '' ? unitVal : null;
+  return { name, quantity, unit, purchased: false };
+}
