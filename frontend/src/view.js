@@ -84,6 +84,7 @@ export function renderCalendar(calendarMeals = {}) {
       if (actionsElem) {
         actionsElem.innerHTML = `
           <button type="button" class="btn-add btn-sm" onclick="openMealSelector('${type}')">Change</button>
+          <button type="button" class="btn-secondary btn-sm" onclick="openRescheduleModal('${type}')">Move</button>
           <button type="button" class="btn-secondary btn-sm" onclick="removeMeal('${type}')">Remove</button>
         `;
       }
@@ -374,11 +375,144 @@ export function backdropClick(e) {
   if (e.target === e.currentTarget) closeModal();
 }
 
-// ── Detail modal ─────────────────────────────────────────────────
+// ── Detail modal & Servings Scaler ───────────────────────────────
+let activeDetailRecipe = null;
+let activeDetailScale = 1;
+
+const UNICODE_FRACTIONS = {
+  '½': 0.5, '⅓': 1 / 3, '⅔': 2 / 3, '¼': 0.25, '¾': 0.75,
+  '⅛': 0.125, '⅜': 0.375, '⅝': 0.625, '⅞': 0.875,
+};
+
+function parseQuantityToken(token) {
+  const trimmed = token.trim();
+  if (!trimmed) return null;
+  if (UNICODE_FRACTIONS[trimmed] !== undefined) return UNICODE_FRACTIONS[trimmed];
+
+  // Mixed number with unicode fraction e.g. "1½" or "1 ½"
+  const unicodeMixed = trimmed.match(/^(\d+)\s*([½⅓⅔¼¾⅛⅜⅝⅞])$/);
+  if (unicodeMixed) {
+    return Number(unicodeMixed[1]) + UNICODE_FRACTIONS[unicodeMixed[2]];
+  }
+
+  // Mixed ASCII fraction e.g. "1 1/2"
+  const mixedMatch = trimmed.match(/^(\d+)\s+(\d+)\/(\d+)$/);
+  if (mixedMatch) {
+    const denom = Number(mixedMatch[3]);
+    return denom > 0 ? Number(mixedMatch[1]) + Number(mixedMatch[2]) / denom : null;
+  }
+
+  // Simple ASCII fraction e.g. "1/2"
+  const fracMatch = trimmed.match(/^(\d+)\/(\d+)$/);
+  if (fracMatch) {
+    const denom = Number(fracMatch[2]);
+    return denom > 0 ? Number(fracMatch[1]) / denom : null;
+  }
+
+  const num = Number(trimmed);
+  return Number.isFinite(num) ? num : null;
+}
+
+function formatScaledNumber(value) {
+  if (!Number.isFinite(value)) return '';
+  const rounded = Math.round(value * 100) / 100;
+  return Number.isInteger(rounded) ? String(rounded) : String(rounded);
+}
+
+export function scaleIngredientLine(line, factor) {
+  if (!line || factor === 1) return line;
+  // Match leading quantity or range (e.g., "2", "1.5", "1/2", "1 1/2", "½", "2-3", "1-2½")
+  const match = line.match(/^(\s*)(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*[½⅓⅔¼¾⅛⅜⅝⅞])?|[½⅓⅔¼¾⅛⅜⅝⅞])(\s*-\s*(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*[½⅓⅔¼¾⅛⅜⅝⅞])?|[½⅓⅔¼¾⅛⅜⅝⅞]))?(.*)$/);
+  if (!match) return line;
+
+  const [, leadingWs, firstToken, rangePart, secondToken, rest] = match;
+  const firstVal = parseQuantityToken(firstToken);
+  if (firstVal === null) return line;
+
+  const scaledFirst = formatScaledNumber(firstVal * factor);
+  if (rangePart && secondToken) {
+    const secondVal = parseQuantityToken(secondToken);
+    if (secondVal !== null) {
+      return `${leadingWs}${scaledFirst}-${formatScaledNumber(secondVal * factor)}${rest}`;
+    }
+  }
+  return `${leadingWs}${scaledFirst}${rest}`;
+}
+
+export function getDetailScale() {
+  return activeDetailScale || 1;
+}
+
+const KNOWN_UNITS = new Set([
+  'g', 'gram', 'grams', 'kg', 'kilogram', 'kilograms', 'mg',
+  'oz', 'ounce', 'ounces', 'lb', 'lbs', 'pound', 'pounds',
+  'ml', 'milliliter', 'milliliters', 'l', 'liter', 'liters',
+  'tsp', 'teaspoon', 'teaspoons', 'tbsp', 'tablespoon', 'tablespoons',
+  'cup', 'cups', 'slice', 'slices', 'clove', 'cloves', 'can', 'cans',
+  'pinch', 'pinches', 'bunch', 'bunches', 'each', 'ea', 'piece', 'pieces', 'whole',
+]);
+
+export function parseIngredientLine(line) {
+  const trimmed = (line || '').trim();
+  if (!trimmed) return null;
+
+  const qtyMatch = trimmed.match(/^(\d+\s+\d+\/\d+|\d+\/\d+|\d+(?:\.\d+)?(?:\s*[½⅓⅔¼¾⅛⅜⅝⅞])?|[½⅓⅔¼¾⅛⅜⅝⅞])\s+(.*)$/);
+  if (!qtyMatch) {
+    return { name: trimmed, quantity: 1, unit: null };
+  }
+
+  const quantity = parseQuantityToken(qtyMatch[1]);
+  let remainder = qtyMatch[2].trim();
+  let unit = null;
+
+  const words = remainder.split(/\s+/);
+  if (words.length >= 2 && KNOWN_UNITS.has(words[0].toLowerCase().replace(/[.,]$/, ''))) {
+    unit = words[0].replace(/[.,]$/, '');
+    remainder = words.slice(1).join(' ').replace(/^of\s+/i, '').trim();
+  }
+
+  return {
+    name: remainder || trimmed,
+    quantity: (quantity !== null && quantity > 0) ? quantity : 1,
+    unit,
+  };
+}
+
+function renderDetailIngredientsHTML(recipe, scale) {
+  if (!recipe || !recipe.ingredients || !recipe.ingredients.length) {
+    return `<p class="detail-empty">No ingredients listed.</p>`;
+  }
+  return `<ul class="detail-list">${recipe.ingredients
+    .map(ing => `<li>${escapeHTML(scaleIngredientLine(ing, scale))}</li>`)
+    .join('')}</ul>`;
+}
+
+export function setDetailScale(scale) {
+  const num = Number(scale);
+  if (!Number.isFinite(num) || num <= 0) return;
+  activeDetailScale = Math.max(0.25, Math.min(20, Math.round(num * 100) / 100));
+
+  const listEl = document.getElementById('d-ingredients-list');
+  if (listEl && activeDetailRecipe) {
+    listEl.innerHTML = renderDetailIngredientsHTML(activeDetailRecipe, activeDetailScale);
+  }
+  const labelEl = document.getElementById('detail-scale-label');
+  if (labelEl) {
+    labelEl.textContent = `${activeDetailScale}x`;
+  }
+  document.querySelectorAll('.scaler-preset-btn').forEach(btn => {
+    btn.classList.toggle('active', Number(btn.dataset.scale) === activeDetailScale);
+  });
+}
+
+export function adjustDetailScale(delta) {
+  setDetailScale(activeDetailScale + Number(delta));
+}
+
 export function openDetailModal(id, recipeList = [], calendarMeals = {}) {
   let r = recipeList.find(x => x.id === Number(id));
   if (!r) {
-    // Check in today's assigned meals
+    // Check in assigned meals
     for (const type of ['breakfast', 'lunch', 'dinner']) {
       if (calendarMeals[type] && calendarMeals[type].recipe && calendarMeals[type].recipe.id === Number(id)) {
         r = calendarMeals[type].recipe;
@@ -388,20 +522,43 @@ export function openDetailModal(id, recipeList = [], calendarMeals = {}) {
   }
   if (!r) return;
 
+  activeDetailRecipe = r;
+  activeDetailScale = 1;
+
   document.getElementById('d-name').textContent = r.name;
 
-  const ingredientsList = r.ingredients && r.ingredients.length
-    ? `<ul class="detail-list">${r.ingredients.map(ing => `<li>${escapeHTML(ing)}</li>`).join('')}</ul>`
-    : `<p class="detail-empty">No ingredients listed.</p>`;
+  const ingredientsList = renderDetailIngredientsHTML(r, 1);
 
   const instructionsList = r.instructions && r.instructions.length
     ? `<ol class="detail-list detail-instructions">${r.instructions.map(step => `<li>${escapeHTML(step)}</li>`).join('')}</ol>`
     : `<p class="detail-empty">No instructions provided.</p>`;
 
+  const scalerControls = (r.ingredients && r.ingredients.length) ? `
+    <div class="servings-scaler" aria-label="Servings scaler">
+      <span class="scaler-label">Scale:</span>
+      <div class="scaler-presets">
+        <button type="button" class="scaler-preset-btn" data-scale="0.5" onclick="setDetailScale(0.5)">0.5x</button>
+        <button type="button" class="scaler-preset-btn active" data-scale="1" onclick="setDetailScale(1)">1x</button>
+        <button type="button" class="scaler-preset-btn" data-scale="2" onclick="setDetailScale(2)">2x</button>
+        <button type="button" class="scaler-preset-btn" data-scale="4" onclick="setDetailScale(4)">4x</button>
+      </div>
+      <div class="pantry-stepper scaler-stepper">
+        <button type="button" class="btn-stepper" onclick="adjustDetailScale(-0.5)" aria-label="Decrease scale">&minus;</button>
+        <span class="pantry-qty-display scaler-value" id="detail-scale-label">1x</span>
+        <button type="button" class="btn-stepper" onclick="adjustDetailScale(0.5)" aria-label="Increase scale">+</button>
+      </div>
+    </div>
+  ` : '';
+
   document.getElementById('d-body').innerHTML = `
     <div class="detail-section">
-      <h3 class="detail-section-title">Ingredients</h3>
-      ${ingredientsList}
+      <div class="detail-section-header">
+        <h3 class="detail-section-title" style="margin-bottom:0;">Ingredients</h3>
+        ${scalerControls}
+      </div>
+      <div id="d-ingredients-list">
+        ${ingredientsList}
+      </div>
     </div>
     <div class="detail-section">
       <h3 class="detail-section-title">Instructions</h3>
@@ -475,6 +632,7 @@ export function renderGroceryList(items = [], filter = 'all', searchQuery = '') 
   const emptyState = document.getElementById('grocery-empty-state');
   const summaryElem = document.getElementById('grocery-summary');
   const clearBtn = document.getElementById('btn-clear-purchased');
+  const moveBtn = document.getElementById('btn-move-to-pantry');
   if (!container || !emptyState) return;
 
   const totalCount = items.length;
@@ -487,6 +645,9 @@ export function renderGroceryList(items = [], filter = 'all', searchQuery = '') 
 
   if (clearBtn) {
     clearBtn.style.display = purchasedCount > 0 ? 'inline-flex' : 'none';
+  }
+  if (moveBtn) {
+    moveBtn.style.display = purchasedCount > 0 ? 'inline-flex' : 'none';
   }
 
   // Filter items
@@ -606,4 +767,489 @@ export function readGroceryForm() {
   const quantity = quantityVal !== '' ? parseFloat(quantityVal) : null;
   const unit = unitVal !== '' ? unitVal : null;
   return { name, quantity, unit, purchased: false };
+}
+
+// ── Pantry inventory rendering ────────────────────────────────────
+function formatQuantityValue(value) {
+  const q = Number(value);
+  if (!Number.isFinite(q)) return '0';
+  return Number.isInteger(q) ? String(q) : q.toFixed(2).replace(/\.?0+$/, '');
+}
+
+export function renderIngredientDatalist(ingredients = []) {
+  const datalist = document.getElementById('pantry-ingredients-datalist');
+  if (!datalist) return;
+  datalist.innerHTML = ingredients
+    .map(ing => `<option value="${escapeHTML(ing.name || '')}"></option>`)
+    .join('');
+}
+
+export function renderPantryList(items = [], filter = 'all', searchQuery = '') {
+  const container = document.getElementById('pantry-list-container');
+  const emptyState = document.getElementById('pantry-empty-state');
+  const summaryElem = document.getElementById('pantry-summary');
+  if (!container || !emptyState) return;
+
+  const totalCount = items.length;
+  const inStockCount = items.filter(it => Number(it.quantity) > 0).length;
+  const outCount = totalCount - inStockCount;
+
+  if (summaryElem) {
+    summaryElem.textContent = `${totalCount} ingredient${totalCount === 1 ? '' : 's'} • ${inStockCount} in stock${outCount > 0 ? ` • ${outCount} out of stock` : ''}`;
+  }
+
+  const query = searchQuery.trim().toLowerCase();
+  let filtered = items;
+  if (query) {
+    filtered = filtered.filter(it => {
+      const name = (it.ingredient && it.ingredient.name) || '';
+      return name.toLowerCase().includes(query);
+    });
+  }
+  if (filter === 'in_stock') {
+    filtered = filtered.filter(it => Number(it.quantity) > 0);
+  } else if (filter === 'out_of_stock') {
+    filtered = filtered.filter(it => Number(it.quantity) <= 0);
+  }
+
+  if (filtered.length === 0) {
+    container.innerHTML = '';
+    emptyState.style.display = 'block';
+    const emptyText = document.getElementById('pantry-empty-text');
+    if (emptyText) {
+      if (totalCount === 0) {
+        emptyText.textContent = 'Your pantry is empty.';
+      } else if (filter === 'in_stock') {
+        emptyText.textContent = 'No ingredients currently in stock.';
+      } else if (filter === 'out_of_stock') {
+        emptyText.textContent = 'No out-of-stock ingredients.';
+      } else {
+        emptyText.textContent = 'No pantry ingredients match your search.';
+      }
+    }
+    return;
+  }
+
+  emptyState.style.display = 'none';
+
+  const sorted = [...filtered].sort((a, b) => {
+    const aInStock = Number(a.quantity) > 0;
+    const bInStock = Number(b.quantity) > 0;
+    if (aInStock !== bInStock) return aInStock ? -1 : 1;
+    const aName = (a.ingredient && a.ingredient.name) || '';
+    const bName = (b.ingredient && b.ingredient.name) || '';
+    return aName.localeCompare(bName);
+  });
+
+  container.innerHTML = sorted.map(item => {
+    const numId = Number(item.ingredient_id);
+    const name = (item.ingredient && item.ingredient.name) || 'Unnamed Ingredient';
+    const qty = Number(item.quantity) || 0;
+    const isOut = qty <= 0;
+    const formattedQty = formatQuantityValue(qty);
+    const unitText = item.unit ? ` ${item.unit}` : '';
+    const qtyDisplay = `${formattedQty}${unitText}`;
+
+    return `
+      <div class="pantry-item ${isOut ? 'out-of-stock' : ''}" id="pantry-item-${numId}">
+        <div class="pantry-item-info">
+          <span class="pantry-item-name">${escapeHTML(name)}</span>
+          ${isOut ? '<span class="pantry-status-pill">Out of stock</span>' : ''}
+        </div>
+        <div class="pantry-item-controls">
+          <div class="pantry-stepper" role="group" aria-label="Adjust quantity for ${escapeHTML(name)}">
+            <button
+              type="button"
+              class="btn-stepper"
+              onclick="adjustPantryQuantity(${numId}, -1)"
+              aria-label="Decrease ${escapeHTML(name)} quantity"
+              ${isOut ? 'disabled' : ''}
+            >&minus;</button>
+            <span class="pantry-qty-display">${escapeHTML(qtyDisplay)}</span>
+            <button
+              type="button"
+              class="btn-stepper"
+              onclick="adjustPantryQuantity(${numId}, 1)"
+              aria-label="Increase ${escapeHTML(name)} quantity"
+            >+</button>
+          </div>
+          <button
+            type="button"
+            class="btn-secondary btn-sm"
+            onclick="openEditPantryModal(${numId})"
+            aria-label="Edit ${escapeHTML(name)}"
+          >Edit</button>
+          ${!isOut ? `
+            <button
+              type="button"
+              class="grocery-item-delete"
+              onclick="depletePantryItem(${numId})"
+              title="Mark as used up (set to 0)"
+              aria-label="Mark ${escapeHTML(name)} as used up"
+            >&#x2715;</button>
+          ` : ''}
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+export function renderPantryExistingNotice(existingItem) {
+  const notice = document.getElementById('pantry-existing-notice');
+  const textEl = document.getElementById('pantry-existing-text');
+  const checkbox = document.getElementById('p-add-to-existing');
+  if (!notice || !textEl || !checkbox) return;
+
+  if (!existingItem) {
+    notice.style.display = 'none';
+    textEl.textContent = '';
+    return;
+  }
+
+  const name = (existingItem.ingredient && existingItem.ingredient.name) || 'This ingredient';
+  const qty = formatQuantityValue(existingItem.quantity);
+  const unit = existingItem.unit ? ` ${existingItem.unit}` : '';
+  textEl.textContent = `"${name}" is already in your pantry (${qty}${unit}).`;
+  checkbox.checked = true;
+  notice.style.display = 'flex';
+}
+
+export function openPantryModal() {
+  const backdrop = document.getElementById('pantry-modal-backdrop');
+  const title = document.getElementById('pantry-modal-title');
+  const idInput = document.getElementById('p-ingredient-id');
+  const nameInput = document.getElementById('p-name');
+  const qtyInput = document.getElementById('p-quantity');
+  const unitInput = document.getElementById('p-unit');
+
+  if (title) title.textContent = 'Add Pantry Ingredient';
+  if (idInput) idInput.value = '';
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.readOnly = false;
+  }
+  if (qtyInput) qtyInput.value = '1';
+  if (unitInput) unitInput.value = '';
+  renderPantryExistingNotice(null);
+  if (backdrop) backdrop.style.display = 'flex';
+  if (nameInput) nameInput.focus();
+}
+
+export function openEditPantryModal(ingredientId, items = []) {
+  const numId = Number(ingredientId);
+  const item = items.find(it => Number(it.ingredient_id) === numId);
+  if (!item) return;
+
+  const backdrop = document.getElementById('pantry-modal-backdrop');
+  const title = document.getElementById('pantry-modal-title');
+  const idInput = document.getElementById('p-ingredient-id');
+  const nameInput = document.getElementById('p-name');
+  const qtyInput = document.getElementById('p-quantity');
+  const unitInput = document.getElementById('p-unit');
+
+  if (title) title.textContent = 'Update Pantry Ingredient';
+  if (idInput) idInput.value = String(numId);
+  if (nameInput) {
+    nameInput.value = (item.ingredient && item.ingredient.name) || '';
+    nameInput.readOnly = true;
+  }
+  if (qtyInput) qtyInput.value = formatQuantityValue(item.quantity);
+  if (unitInput) unitInput.value = item.unit || '';
+  renderPantryExistingNotice(null);
+  if (backdrop) backdrop.style.display = 'flex';
+  if (qtyInput) qtyInput.focus();
+}
+
+export function closePantryModal() {
+  const backdrop = document.getElementById('pantry-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+  const idInput = document.getElementById('p-ingredient-id');
+  const nameInput = document.getElementById('p-name');
+  const qtyInput = document.getElementById('p-quantity');
+  const unitInput = document.getElementById('p-unit');
+  if (idInput) idInput.value = '';
+  if (nameInput) {
+    nameInput.value = '';
+    nameInput.readOnly = false;
+  }
+  if (qtyInput) qtyInput.value = '';
+  if (unitInput) unitInput.value = '';
+  renderPantryExistingNotice(null);
+}
+
+export function backdropPantryClick(e) {
+  if (e.target === e.currentTarget) closePantryModal();
+}
+
+export function readPantryForm() {
+  const ingredientIdVal = document.getElementById('p-ingredient-id').value.trim();
+  const ingredientId = ingredientIdVal !== '' ? Number(ingredientIdVal) : null;
+  const name = document.getElementById('p-name').value.trim();
+  const quantityVal = document.getElementById('p-quantity').value.trim();
+  const unitVal = document.getElementById('p-unit').value.trim();
+  const quantity = quantityVal !== '' ? parseFloat(quantityVal) : NaN;
+  const unit = unitVal !== '' ? unitVal : null;
+  const addCheckbox = document.getElementById('p-add-to-existing');
+  const addToExisting = Boolean(addCheckbox && addCheckbox.checked);
+  return { ingredientId, name, quantity, unit, addToExisting };
+}
+
+// ── Calendar 7-Day Week View ─────────────────────────────────────
+export function renderWeekGrid({ startDateStr, mealsByDate = {} }) {
+  const weekGrid = document.getElementById('calendar-week-grid');
+  const monthLabel = document.getElementById('calendar-month-label');
+  if (!weekGrid) return;
+
+  const [sy, sm, sd] = startDateStr.split('-').map(Number);
+  const startDate = new Date(sy, sm - 1, sd);
+  const endDate = new Date(sy, sm - 1, sd + 6);
+
+  if (monthLabel) {
+    const startFmt = startDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const endFmt = endDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    monthLabel.textContent = `${startFmt} – ${endFmt}`;
+  }
+
+  const now = new Date();
+  const todayStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
+
+  const slots = [
+    { type: 'breakfast', label: 'Breakfast', icon: '🌅' },
+    { type: 'lunch', label: 'Lunch', icon: '☀️' },
+    { type: 'dinner', label: 'Dinner', icon: '🌙' },
+  ];
+
+  let html = '';
+  for (let offset = 0; offset < 7; offset++) {
+    const d = new Date(sy, sm - 1, sd + offset);
+    const dateStr = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    const isToday = dateStr === todayStr;
+    const dayMeals = mealsByDate[dateStr] || {};
+    const dayHeading = d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' });
+
+    const slotsHTML = slots.map(slot => {
+      const meal = dayMeals[slot.type];
+      if (meal && meal.recipe && meal.recipe.name) {
+        const recipeId = Number(meal.recipe.id);
+        const recipeName = escapeHTML(meal.recipe.name);
+        return `
+          <div class="week-meal-slot filled">
+            <div class="week-slot-label">${slot.icon} ${slot.label}</div>
+            <div class="week-slot-content">
+              <button
+                type="button"
+                class="week-recipe-link"
+                onclick="openDetailModalForDate(${recipeId}, '${escapeHTML(dateStr)}')"
+                title="View recipe details"
+              >${recipeName}</button>
+              <div class="week-slot-actions">
+                <button type="button" class="btn-week-action" onclick="openRescheduleForDate('${escapeHTML(dateStr)}', '${slot.type}')" title="Move to another day">Move</button>
+                <button type="button" class="btn-week-action danger" onclick="removeMealOnDate('${escapeHTML(dateStr)}', '${slot.type}')" title="Remove meal" aria-label="Remove ${recipeName}">&#x2715;</button>
+              </div>
+            </div>
+          </div>
+        `;
+      }
+      return `
+        <div class="week-meal-slot empty">
+          <div class="week-slot-label">${slot.icon} ${slot.label}</div>
+          <button type="button" class="btn-week-add" onclick="openMealSelectorForDate('${escapeHTML(dateStr)}', '${slot.type}')">
+            + Add
+          </button>
+        </div>
+      `;
+    }).join('');
+
+    html += `
+      <div class="week-day-card ${isToday ? 'today' : ''}">
+        <div class="week-day-header">
+          <span class="week-day-title">${escapeHTML(dayHeading)}</span>
+          ${isToday ? '<span class="week-today-badge">Today</span>' : ''}
+        </div>
+        <div class="week-day-slots">
+          ${slotsHTML}
+        </div>
+      </div>
+    `;
+  }
+
+  weekGrid.innerHTML = html;
+}
+
+// ── Reschedule Meal Modal ────────────────────────────────────────
+export function openRescheduleModal({ sourceDate, sourceType, recipe }) {
+  const backdrop = document.getElementById('reschedule-modal-backdrop');
+  if (!backdrop) return;
+
+  document.getElementById('reschedule-source-date').value = sourceDate;
+  document.getElementById('reschedule-source-type').value = sourceType;
+  document.getElementById('reschedule-recipe-id').value = Number(recipe.id);
+  document.getElementById('reschedule-date').value = sourceDate;
+  document.getElementById('reschedule-meal-type').value = sourceType;
+
+  const summary = document.getElementById('reschedule-meal-summary');
+  if (summary) {
+    const [y, m, d] = sourceDate.split('-').map(Number);
+    const formattedDate = new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+    const displayType = sourceType.charAt(0).toUpperCase() + sourceType.slice(1);
+    summary.textContent = `Moving "${recipe.name}" (${displayType} on ${formattedDate})`;
+  }
+
+  backdrop.style.display = 'flex';
+  document.getElementById('reschedule-date').focus();
+}
+
+export function closeRescheduleModal() {
+  const backdrop = document.getElementById('reschedule-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+export function backdropRescheduleClick(e) {
+  if (e.target === e.currentTarget) closeRescheduleModal();
+}
+
+export function readRescheduleForm() {
+  return {
+    sourceDate: document.getElementById('reschedule-source-date').value,
+    sourceType: document.getElementById('reschedule-source-type').value,
+    recipeId: Number(document.getElementById('reschedule-recipe-id').value),
+    targetDate: document.getElementById('reschedule-date').value,
+    targetType: document.getElementById('reschedule-meal-type').value,
+  };
+}
+
+// ── Generate Grocery List Modal ──────────────────────────────────
+export function openGenerateGroceryModal(recipesList = [], preselectedIds = []) {
+  const backdrop = document.getElementById('generate-grocery-modal-backdrop');
+  if (!backdrop) return;
+  const previewSection = document.getElementById('generate-preview-section');
+  if (previewSection) previewSection.style.display = 'none';
+  const previewList = document.getElementById('generate-preview-list');
+  if (previewList) previewList.innerHTML = '';
+
+  renderGenerateRecipeList(recipesList, preselectedIds);
+  backdrop.style.display = 'flex';
+}
+
+export function closeGenerateGroceryModal() {
+  const backdrop = document.getElementById('generate-grocery-modal-backdrop');
+  if (backdrop) backdrop.style.display = 'none';
+}
+
+export function backdropGenerateGroceryClick(e) {
+  if (e.target === e.currentTarget) closeGenerateGroceryModal();
+}
+
+export function renderGenerateRecipeList(recipesList = [], selectedIds = []) {
+  const container = document.getElementById('generate-recipe-list');
+  if (!container) return;
+
+  if (!recipesList || recipesList.length === 0) {
+    container.innerHTML = '<p class="detail-empty">No saved recipes available. Add a recipe first.</p>';
+    return;
+  }
+
+  const counts = new Map();
+  selectedIds.forEach(id => {
+    const numId = Number(id);
+    if (Number.isInteger(numId) && numId > 0) {
+      counts.set(numId, (counts.get(numId) || 0) + 1);
+    }
+  });
+
+  container.innerHTML = recipesList.map(r => {
+    const numId = Number(r.id);
+    const count = counts.get(numId) || 0;
+    const checked = count > 0 ? 'checked' : '';
+    const ingCount = Array.isArray(r.ingredients) ? r.ingredients.length : 0;
+    return `
+      <div class="generate-recipe-row">
+        <label class="generate-recipe-label" for="gen-rec-${numId}">
+          <input
+            type="checkbox"
+            id="gen-rec-${numId}"
+            class="grocery-checkbox gen-recipe-checkbox"
+            value="${numId}"
+            ${checked}
+          />
+          <span class="generate-recipe-name">${escapeHTML(r.name)}</span>
+          <span class="generate-recipe-meta">${ingCount} ingredient${ingCount === 1 ? '' : 's'}</span>
+        </label>
+        <div class="generate-count-wrap" title="Number of times to include this recipe">
+          <span class="generate-count-x">&times;</span>
+          <input
+            type="number"
+            id="gen-count-${numId}"
+            class="generate-count-input"
+            min="1"
+            max="20"
+            value="${count > 0 ? count : 1}"
+            aria-label="Multiplier for ${escapeHTML(r.name)}"
+            onchange="const cb = document.getElementById('gen-rec-${numId}'); if (cb && Number(this.value) > 0) cb.checked = true;"
+          />
+        </div>
+      </div>
+    `;
+  }).join('');
+}
+
+export function readGenerateSelectedRecipeIds() {
+  const ids = [];
+  document.querySelectorAll('.gen-recipe-checkbox:checked').forEach(cb => {
+    const numId = Number(cb.value);
+    if (!Number.isInteger(numId) || numId <= 0) return;
+    const countInput = document.getElementById(`gen-count-${numId}`);
+    const count = countInput ? Math.max(1, Math.min(20, Math.floor(Number(countInput.value) || 1))) : 1;
+    for (let i = 0; i < count; i++) {
+      ids.push(numId);
+    }
+  });
+  return ids;
+}
+
+export function renderGeneratePreview(requirements = [], isEstimated = false) {
+  const section = document.getElementById('generate-preview-section');
+  const list = document.getElementById('generate-preview-list');
+  if (!section || !list) return;
+
+  section.style.display = 'block';
+  if (!requirements || requirements.length === 0) {
+    list.innerHTML = '<p class="detail-empty">No ingredients required for the selected recipes.</p>';
+    return;
+  }
+
+  const statusLabels = {
+    available: 'In Pantry',
+    insufficient: 'Partial',
+    missing: 'Missing',
+    incomparable: 'Unit Mismatch',
+  };
+
+  const noteHTML = isEstimated
+    ? `<p class="generate-estimated-note">Estimated from recipe ingredient text (pantry checked by ingredient name).</p>`
+    : '';
+
+  list.innerHTML = noteHTML + requirements.map(req => {
+    const name = escapeHTML((req.ingredient && req.ingredient.name) || 'Ingredient');
+    const reqQty = formatQuantityValue(req.required_quantity);
+    const missQty = formatQuantityValue(req.missing_quantity);
+    const unit = escapeHTML(req.unit || '');
+    const status = req.status || 'missing';
+    const label = statusLabels[status] || status;
+    const detail = status === 'available'
+      ? `Need ${reqQty} ${unit} (covered by pantry)`
+      : status === 'incomparable'
+        ? `Need ${reqQty} ${unit} (pantry unit differs)`
+        : `Need ${reqQty} ${unit} • Add ${missQty} ${unit}`;
+
+    return `
+      <div class="generate-preview-row">
+        <div>
+          <div class="generate-preview-name">${name}</div>
+          <div class="generate-preview-detail">${detail.trim()}</div>
+        </div>
+        <span class="gen-status-pill status-${escapeHTML(status)}">${escapeHTML(label)}</span>
+      </div>
+    `;
+  }).join('');
 }

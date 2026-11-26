@@ -45,6 +45,16 @@
           Grocery List
         </a>
       </li>
+      <li>
+        <a href="#" id="pantry-nav" class="nav-item" data-page="pantry" onclick="navigateTo('pantry'); return false;">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M21 8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16Z"/>
+            <path d="m3.3 7 8.7 5 8.7-5"/>
+            <path d="M12 22V12"/>
+          </svg>
+          Pantry
+        </a>
+      </li>
     </ul>
 
 
@@ -100,6 +110,12 @@
         <button type="button" class="btn-secondary" id="btn-clear-purchased" onclick="clearPurchasedGroceryItems()" title="Remove all checked items" style="display:none">
           Clear Purchased
         </button>
+        <button type="button" class="btn-secondary" id="btn-move-to-pantry" onclick="movePurchasedToPantry()" title="Add purchased items to Pantry and remove from list" style="display:none">
+          Move to Pantry
+        </button>
+        <button type="button" class="btn-secondary" onclick="openGenerateGroceryModal()" title="Auto-generate from saved recipes or upcoming week">
+          Generate from Recipes
+        </button>
         <button type="button" class="btn-add" onclick="openGroceryModal()">
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
             <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
@@ -136,22 +152,71 @@
 
   </main>
 
+  <main class="page-content" id="pantry-view" style="display:none">
+
+    <!-- Page header row -->
+    <div class="page-header">
+      <div>
+        <h1 class="page-title">Pantry </h1>
+        <p class="pantry-summary-subtitle" id="pantry-summary">0 items • 0 in stock</p>
+      </div>
+      <div class="header-action-group">
+        <button type="button" class="btn-add" onclick="openPantryModal()">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3" stroke-linecap="round">
+            <line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/>
+          </svg>
+          Add Ingredient
+        </button>
+      </div>
+    </div>
+
+    <!-- Toolbar / Search & Filter -->
+    <div class="grocery-toolbar">
+      <div class="recipes-search-bar grocery-search-bar">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+          <circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/>
+        </svg>
+        <input type="text" id="pantry-search-input" placeholder="Search pantry ingredients…" oninput="handlePantrySearch(this.value)" />
+      </div>
+
+      <div class="filter-tabs" id="pantry-filter-tabs">
+        <button type="button" class="filter-tab active" data-filter="all" onclick="setPantryFilter('all')">All</button>
+        <button type="button" class="filter-tab" data-filter="in_stock" onclick="setPantryFilter('in_stock')">In Stock</button>
+        <button type="button" class="filter-tab" data-filter="out_of_stock" onclick="setPantryFilter('out_of_stock')">Out of Stock</button>
+      </div>
+    </div>
+
+    <!-- Pantry list container -->
+    <div class="pantry-list-container" id="pantry-list-container"></div>
+
+    <!-- Empty state -->
+    <div class="empty-state" id="pantry-empty-state" style="display:none">
+      <p id="pantry-empty-text">Your pantry is empty.</p>
+      <button type="button" class="btn-add" onclick="openPantryModal()">Add an ingredient</button>
+    </div>
+
+  </main>
+
   <main class="page-content" id="calendar-view" style="display:none">
 
-    <!-- Calendar Month Header & Navigation -->
+    <!-- Calendar Month/Week Header & Navigation -->
     <div class="calendar-header-bar">
       <div>
         <h1 class="page-title">Meal Calendar</h1>
-        <p class="calendar-subtitle">Click any day to view or plan meals</p>
+        <p class="calendar-subtitle" id="calendar-subtitle">Click any day to view or plan meals</p>
       </div>
       <div class="calendar-nav-controls">
-        <button type="button" class="btn-cal-nav" onclick="changeMonth(-1)" title="Previous month" aria-label="Previous month">
+        <div class="filter-tabs" id="calendar-view-tabs">
+          <button type="button" class="filter-tab active" data-view="month" onclick="setCalendarMode('month')">Month</button>
+          <button type="button" class="filter-tab" data-view="week" onclick="setCalendarMode('week')">Week</button>
+        </div>
+        <button type="button" class="btn-cal-nav" onclick="stepCalendarPeriod(-1)" title="Previous" aria-label="Previous period">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="15 18 9 12 15 6"></polyline>
           </svg>
         </button>
         <span class="calendar-current-month" id="calendar-month-label"></span>
-        <button type="button" class="btn-cal-nav" onclick="changeMonth(1)" title="Next month" aria-label="Next month">
+        <button type="button" class="btn-cal-nav" onclick="stepCalendarPeriod(1)" title="Next" aria-label="Next period">
           <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
             <polyline points="9 18 15 12 9 6"></polyline>
           </svg>
@@ -161,13 +226,18 @@
     </div>
 
     <!-- Calendar Month Grid Card -->
-    <div class="calendar-card">
+    <div class="calendar-card" id="calendar-month-card">
       <div class="calendar-weekdays">
         <div>Sun</div><div>Mon</div><div>Tue</div><div>Wed</div><div>Thu</div><div>Fri</div><div>Sat</div>
       </div>
       <div class="calendar-days-grid" id="calendar-days-grid">
         <!-- Rendered dynamically -->
       </div>
+    </div>
+
+    <!-- Calendar 7-Day Week View -->
+    <div class="calendar-week-grid" id="calendar-week-grid" style="display:none">
+      <!-- Rendered dynamically -->
     </div>
 
   </main>
@@ -300,15 +370,20 @@
       <!-- Hidden field stores the current recipe id for the Edit button -->
       <input type="hidden" id="detail-recipe-id" value="" />
 
-      <div class="modal-actions" style="padding: 0 1.4rem 1.25rem;">
-        <button type="button" class="btn-secondary" onclick="closeDetailModal()">Close</button>
-        <button type="button" class="btn-add" onclick="editFromDetail()">
-          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
-            <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
-          </svg>
-          Edit
+      <div class="modal-actions detail-modal-actions" style="padding: 0 1.4rem 1.25rem;">
+        <button type="button" class="btn-secondary" onclick="generateGroceryFromDetail()" title="Check pantry and add missing ingredients to Grocery List">
+          + Missing to Grocery
         </button>
+        <div class="detail-actions-right">
+          <button type="button" class="btn-secondary" onclick="closeDetailModal()">Close</button>
+          <button type="button" class="btn-add" onclick="editFromDetail()">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
+              <path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/>
+              <path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/>
+            </svg>
+            Edit
+          </button>
+        </div>
       </div>
 
     </div>
@@ -382,6 +457,142 @@
     </div>
   </div>
   <!-- END ADD GROCERY ITEM MODAL -->
+
+  <!-- ADD / EDIT PANTRY ITEM MODAL -->
+  <div class="modal-backdrop" id="pantry-modal-backdrop" onclick="backdropPantryClick(event)" style="display:none">
+    <div class="modal modal-grocery">
+
+      <div class="modal-header">
+        <h2 id="pantry-modal-title">Add Pantry Ingredient</h2>
+        <button class="modal-close" onclick="closePantryModal()" aria-label="Close modal">&#x2715;</button>
+      </div>
+
+      <form class="modal-body" onsubmit="submitPantryItem(event)">
+        <input type="hidden" id="p-ingredient-id" value="" />
+
+        <label class="form-label" for="p-name">Ingredient Name <span class="required">*</span></label>
+        <input
+          class="form-input"
+          id="p-name"
+          type="text"
+          list="pantry-ingredients-datalist"
+          placeholder="e.g. Olive Oil, Flour, Eggs"
+          maxlength="120"
+          required
+          autocomplete="off"
+          oninput="handlePantryNameInput(this.value)"
+        />
+        <datalist id="pantry-ingredients-datalist"></datalist>
+
+        <div id="pantry-existing-notice" class="pantry-existing-notice" style="display:none">
+          <span id="pantry-existing-text"></span>
+          <label class="pantry-existing-toggle" for="p-add-to-existing">
+            <input type="checkbox" id="p-add-to-existing" class="grocery-checkbox" checked />
+            <span>Add to existing stock (uncheck to overwrite)</span>
+          </label>
+        </div>
+
+        <div class="form-row-2">
+          <div>
+            <label class="form-label" for="p-quantity">Quantity <span class="required">*</span></label>
+            <input class="form-input" id="p-quantity" type="number" step="any" min="0" placeholder="e.g. 2" required />
+          </div>
+          <div>
+            <label class="form-label" for="p-unit">Unit <span class="optional">(optional)</span></label>
+            <input class="form-input" id="p-unit" type="text" placeholder="e.g. cups, g, lbs, each" maxlength="30" />
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closePantryModal()">Cancel</button>
+          <button type="submit" class="btn-add" id="p-submit-btn">Save to Pantry</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+  <!-- END ADD / EDIT PANTRY ITEM MODAL -->
+
+  <!-- GENERATE GROCERY LIST MODAL -->
+  <div class="modal-backdrop" id="generate-grocery-modal-backdrop" onclick="backdropGenerateGroceryClick(event)" style="display:none">
+    <div class="modal modal-generate-grocery">
+
+      <div class="modal-header">
+        <h2>Generate Grocery List</h2>
+        <button class="modal-close" onclick="closeGenerateGroceryModal()" aria-label="Close modal">&#x2715;</button>
+      </div>
+
+      <div class="modal-body">
+        <div class="generate-source-bar">
+          <button type="button" class="btn-secondary btn-sm" onclick="selectUpcomingWeekRecipes()">
+            Select Upcoming 7 Days
+          </button>
+          <button type="button" class="btn-secondary btn-sm" onclick="clearGenerateRecipeSelection()">
+            Clear Selection
+          </button>
+        </div>
+
+        <label class="form-label" style="margin-top: 0.75rem;">Select recipes to check against pantry</label>
+        <div class="generate-recipe-list" id="generate-recipe-list">
+          <!-- Rendered dynamically -->
+        </div>
+
+        <div id="generate-preview-section" class="generate-preview-section" style="display:none">
+          <h3 class="detail-section-title" style="margin-top: 1rem;">Ingredient Requirements</h3>
+          <div id="generate-preview-list" class="generate-preview-list"></div>
+        </div>
+
+        <div class="modal-actions" style="margin-top: 1.25rem;">
+          <button type="button" class="btn-secondary" onclick="closeGenerateGroceryModal()">Cancel</button>
+          <button type="button" class="btn-secondary" id="btn-preview-grocery" onclick="runGenerateGrocery(false)">Preview</button>
+          <button type="button" class="btn-add" id="btn-add-generated-grocery" onclick="runGenerateGrocery(true)">Add Missing to List</button>
+        </div>
+      </div>
+
+    </div>
+  </div>
+  <!-- END GENERATE GROCERY LIST MODAL -->
+
+  <!-- RESCHEDULE MEAL MODAL -->
+  <div class="modal-backdrop" id="reschedule-modal-backdrop" onclick="backdropRescheduleClick(event)" style="display:none">
+    <div class="modal modal-grocery">
+
+      <div class="modal-header">
+        <h2>Move / Reschedule Meal</h2>
+        <button class="modal-close" onclick="closeRescheduleModal()" aria-label="Close modal">&#x2715;</button>
+      </div>
+
+      <form class="modal-body" onsubmit="submitRescheduleMeal(event)">
+        <input type="hidden" id="reschedule-source-date" value="" />
+        <input type="hidden" id="reschedule-source-type" value="" />
+        <input type="hidden" id="reschedule-recipe-id" value="" />
+
+        <p class="reschedule-meal-summary" id="reschedule-meal-summary"></p>
+
+        <div class="form-row-2">
+          <div>
+            <label class="form-label" for="reschedule-date">New Date <span class="required">*</span></label>
+            <input class="form-input" id="reschedule-date" type="date" required />
+          </div>
+          <div>
+            <label class="form-label" for="reschedule-meal-type">Meal Slot <span class="required">*</span></label>
+            <select class="form-input" id="reschedule-meal-type" required>
+              <option value="breakfast">Breakfast</option>
+              <option value="lunch">Lunch</option>
+              <option value="dinner">Dinner</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="modal-actions">
+          <button type="button" class="btn-secondary" onclick="closeRescheduleModal()">Cancel</button>
+          <button type="submit" class="btn-add">Move Meal</button>
+        </div>
+      </form>
+
+    </div>
+  </div>
+  <!-- END RESCHEDULE MEAL MODAL -->
 
   <!-- Toast notification -->
   <div class="toast" id="toast"></div>

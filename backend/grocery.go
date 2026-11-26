@@ -181,7 +181,7 @@ func (r *SQLiteRepository) AddMissingRequirements(items []GroceryRequirement) ([
 			continue
 		}
 		ingredientID, quantity, unit, name := req.Ingredient.ID, req.MissingQuantity, req.Unit, req.Ingredient.Name
-		item, err := createGroceryItemTx(tx, GroceryItem{IngredientID: &ingredientID, Name: &name, Quantity: &quantity, Unit: &unit})
+		item, err := upsertUnpurchasedGroceryItemTx(tx, GroceryItem{IngredientID: &ingredientID, Name: &name, Quantity: &quantity, Unit: &unit})
 		if err != nil {
 			return nil, err
 		}
@@ -191,6 +191,127 @@ func (r *SQLiteRepository) AddMissingRequirements(items []GroceryRequirement) ([
 		return nil, err
 	}
 	return added, nil
+}
+
+func upsertUnpurchasedGroceryItemTx(tx *sql.Tx, item GroceryItem) (GroceryItem, error) {
+	validated, err := normalizeGroceryItem(item)
+	if err != nil {
+		return GroceryItem{}, err
+	}
+	if validated.Purchased {
+		return createGroceryItemTx(tx, validated)
+	}
+
+	nameKey := ""
+	if validated.Name != nil {
+		nameKey = strings.TrimSpace(*validated.Name)
+	}
+
+	var rows *sql.Rows
+	if validated.IngredientID != nil {
+		rows, err = tx.Query(
+			`SELECT grocery_item_id, ingredient_id, name, quantity, unit, purchased
+			 FROM grocery_items
+			 WHERE purchased = 0 AND (ingredient_id = ? OR (ingredient_id IS NULL AND ? != '' AND lower(trim(name)) = lower(?)))
+			 ORDER BY grocery_item_id`,
+			*validated.IngredientID, nameKey, nameKey,
+		)
+	} else {
+		rows, err = tx.Query(
+			`SELECT grocery_item_id, ingredient_id, name, quantity, unit, purchased
+			 FROM grocery_items
+			 WHERE purchased = 0 AND lower(trim(name)) = lower(?)
+			 ORDER BY grocery_item_id`,
+			nameKey,
+		)
+	}
+	if err != nil {
+		return GroceryItem{}, err
+	}
+
+	var candidates []GroceryItem
+	for rows.Next() {
+		var cand GroceryItem
+		var iid sql.NullInt64
+		var cname, cunit sql.NullString
+		var cqty sql.NullFloat64
+		var cpurchased int
+		if err := rows.Scan(&cand.ID, &iid, &cname, &cqty, &cunit, &cpurchased); err != nil {
+			rows.Close()
+			return GroceryItem{}, err
+		}
+		if iid.Valid {
+			v := int(iid.Int64)
+			cand.IngredientID = &v
+		}
+		if cname.Valid {
+			cand.Name = &cname.String
+		}
+		if cqty.Valid {
+			cand.Quantity = &cqty.Float64
+		}
+		if cunit.Valid {
+			cand.Unit = &cunit.String
+		}
+		cand.Purchased = cpurchased != 0
+		candidates = append(candidates, cand)
+	}
+	if err := rows.Err(); err != nil {
+		rows.Close()
+		return GroceryItem{}, err
+	}
+	rows.Close()
+
+	for _, cand := range candidates {
+		compatible := false
+		factor := 1.0
+
+		switch {
+		case cand.Quantity == nil && cand.Unit == nil:
+			compatible = true
+		case validated.Quantity == nil && validated.Unit == nil:
+			compatible = true
+		case cand.Unit == nil && validated.Unit == nil:
+			compatible = true
+		case cand.Unit != nil && validated.Unit != nil:
+			if converted, ok := unitConversion(*validated.Unit, *cand.Unit); ok {
+				compatible = true
+				factor = converted
+			}
+		}
+
+		if !compatible {
+			continue
+		}
+
+		merged := cand
+		if merged.IngredientID == nil && validated.IngredientID != nil {
+			merged.IngredientID = validated.IngredientID
+		}
+		if merged.Name == nil && validated.Name != nil {
+			merged.Name = validated.Name
+		}
+		if merged.Unit == nil && validated.Unit != nil {
+			merged.Unit = validated.Unit
+		}
+		if cand.Quantity != nil && validated.Quantity != nil {
+			sum := *cand.Quantity + (*validated.Quantity)*factor
+			merged.Quantity = &sum
+		} else if validated.Quantity != nil {
+			q := *validated.Quantity
+			merged.Quantity = &q
+		}
+
+		if _, err := tx.Exec(
+			`UPDATE grocery_items SET ingredient_id=?, name=?, quantity=?, unit=? WHERE grocery_item_id=?`,
+			merged.IngredientID, merged.Name, merged.Quantity, merged.Unit, merged.ID,
+		); err != nil {
+			return GroceryItem{}, err
+		}
+		return merged, nil
+	}
+
+	return createGroceryItemTx(tx, validated)
 }
 
 func createGroceryItemTx(tx *sql.Tx, item GroceryItem) (GroceryItem, error) {

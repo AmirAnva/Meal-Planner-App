@@ -295,17 +295,19 @@ func normalizeGroceryItem(v GroceryItem) (GroceryItem, error) {
 }
 
 func (r *SQLiteRepository) CreateGroceryItem(v GroceryItem) (GroceryItem, error) {
-	var err error
-	if v, err = normalizeGroceryItem(v); err != nil {
+	tx, err := r.db.Begin()
+	if err != nil {
 		return GroceryItem{}, err
 	}
-	res, e := r.db.Exec(`INSERT INTO grocery_items(ingredient_id,name,quantity,unit,purchased) VALUES(?,?,?,?,?)`, v.IngredientID, v.Name, v.Quantity, v.Unit, v.Purchased)
-	if e != nil {
-		return GroceryItem{}, e
+	defer tx.Rollback()
+	created, err := upsertUnpurchasedGroceryItemTx(tx, v)
+	if err != nil {
+		return GroceryItem{}, err
 	}
-	id, e := res.LastInsertId()
-	v.ID = int(id)
-	return v, e
+	if err := tx.Commit(); err != nil {
+		return GroceryItem{}, err
+	}
+	return created, nil
 }
 func (r *SQLiteRepository) ListGroceryItems() ([]GroceryItem, error) {
 	rows, e := r.db.Query(`SELECT grocery_item_id,ingredient_id,name,quantity,unit,purchased FROM grocery_items ORDER BY grocery_item_id`)
