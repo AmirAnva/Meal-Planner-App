@@ -225,3 +225,42 @@ func (api *API) generateGroceryList(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusOK, response)
 }
+
+func (api *API) getRecipeIngredients(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id < 1 {
+		writeError(w, http.StatusBadRequest, "invalid recipe id")
+		return
+	}
+	if _, err := api.store.GetRecipe(id); err != nil {
+		if errors.Is(err, ErrRecipeNotFound) {
+			writeError(w, http.StatusNotFound, "recipe not found")
+		} else {
+			writeError(w, http.StatusInternalServerError, "could not load recipe")
+		}
+		return
+	}
+	items, err := api.store.ListRecipeIngredients(id)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "could not load ingredients")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string][]RecipeIngredient{"ingredients": items})
+}
+
+func (api *API) transferGrocery(w http.ResponseWriter, r *http.Request) {
+	id, err := strconv.Atoi(r.PathValue("id"))
+	if err != nil || id <= 0 {
+		writeError(w, 400, "invalid grocery id")
+		return
+	}
+	if err = api.store.MovePurchasedGrocery(id); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			writeError(w, 404, "grocery item not found")
+		} else {
+			writeError(w, 409, "transfer failed; item retained: "+err.Error())
+		}
+		return
+	}
+	w.WriteHeader(http.StatusNoContent)
+}

@@ -1560,3 +1560,70 @@ body {
   font-style: italic;
   margin-bottom: 0.35rem;
 }
+
+/* Structured recipe ingredient form */
+.ingredient-row-header, .recipe-ingredient-row { display:grid; grid-template-columns:minmax(0,2fr) minmax(0,1fr) minmax(0,1fr) 32px; gap:8px; align-items:center; margin-bottom:8px; }
+.ingredient-row-header { font-size:12px; font-weight:600; color:#666; }
+.recipe-ingredient-row .form-input { width:100%; min-width:0; box-sizing:border-box; padding:8px; }
+.remove-ingredient-btn { border:0; border-radius:6px; background:#eee; cursor:pointer; font-size:20px; min-height:32px; }
+.remove-ingredient-btn:hover { background:#fee2e2; color:#b91c1c; }
+#add-ingredient-row { margin-bottom:12px; width:100%; }
+
+/* Recipe discovery filters */
+.recipe-filters {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 180px), 1fr));
+  gap: 12px;
+  margin: 0 0 1.5rem;
+}
+.recipe-filters label {
+  min-width: 0;
+  font-size: .8rem;
+  font-weight: 600;
+  color: #666;
+}
+.recipe-filters select {
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: 6px;
+  appearance: none;
+  background: #fff url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='16' height='16' viewBox='0 0 24 24' fill='none' stroke='%23757575' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='m6 9 6 6 6-6'/%3E%3C/svg%3E") no-repeat right 1rem center;
+  border: 1px solid #e0e0e0;
+  border-radius: 10px;
+  padding: .65rem 2.5rem .65rem 1rem;
+  min-height: 42px;
+  font: inherit;
+  font-size: .95rem;
+  font-weight: 400;
+  color: #1a1a1a;
+  box-shadow: 0 1px 4px rgba(0,0,0,.03);
+  cursor: pointer;
+}
+.recipe-filters select:focus {
+  border-color: #2e7d32;
+  box-shadow: 0 0 0 3px rgba(46,125,50,.12);
+}
+.recipe-labels {display:flex;flex-wrap:wrap;gap:5px;margin-top:8px;} .recipe-labels span {background:#e8f3e8;color:#25652a;border-radius:5px;padding:3px 7px;font-size:12px;}
+
+/* Grocery purchase controls */
+.grocery-purchase-hint { color: #666; font-size: .85rem; margin: 0 0 1rem; }
+ .grocery-item-actions { display: flex; align-items: center; gap: 1rem; flex-shrink: 0; }
+.grocery-item .grocery-item-badge { margin-left: 0; background: #f3f4f6; color: #555; border-color: #e5e7eb; cursor: default; }
+.grocery-item.purchased .grocery-item-badge { color: #777; }
+.grocery-purchase-control, .grocery-item .grocery-remove-action {
+  display: inline-flex; align-items: center; justify-content: center; gap: .35rem;
+  min-height: 44px; width: auto; height: auto; padding: 0 .25rem;
+  border: 0; background: transparent; color: #666; font-size: .85rem;
+  font-weight: 600; cursor: pointer; white-space: nowrap; border-radius: 4px;
+}
+.grocery-item-actions button span { font-size: 1.2rem; line-height: 1; }
+.grocery-purchase-control:hover, .grocery-item.purchased .grocery-purchase-control { color: #2e7d32; }
+.grocery-item.purchased .grocery-purchase-control { text-decoration: underline; text-underline-offset: 3px; }
+.grocery-item .grocery-remove-action:hover { color: #dc2626; background: transparent; }
+.grocery-item-actions button:focus-visible { outline: 2px solid #2e7d32; outline-offset: 2px; }
+@media (max-width: 560px) {
+  .grocery-item { flex-wrap: wrap; gap: .4rem; padding: .65rem; }
+  .grocery-item-left { flex-wrap: wrap; gap: .4rem; }
+  .grocery-item-actions { margin-left: auto; gap: .6rem; }
+}

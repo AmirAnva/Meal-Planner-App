@@ -79,7 +79,7 @@ async function loadRecipes() {
     if (searchInput && searchInput.value.trim()) {
       handleSearch(searchInput.value);
     } else {
-      View.render(recipes);
+      refreshRecipeFilters(); View.render(recipes);
     }
   } catch (err) {
     View.showToast('Could not load recipes: ' + err.message);
@@ -152,9 +152,8 @@ async function loadCalendar(year = currentYear, month = currentMonth) {
 async function submitRecipe(e) {
   e.preventDefault();
 
-  const { editId, payload } = View.readRecipeForm();
-
   try {
+    const { editId, payload } = View.readRecipeForm();
     if (editId) {
       // Edit existing recipe
       const updated = await apiFetch(`/api/recipes/${editId}`, {
@@ -168,7 +167,7 @@ async function submitRecipe(e) {
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        View.render(recipes);
+        refreshRecipeFilters(); View.render(recipes);
       }
       loadCalendar();
       View.showToast(`"${updated.name}" updated!`);
@@ -185,7 +184,7 @@ async function submitRecipe(e) {
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        View.render(recipes);
+        refreshRecipeFilters(); View.render(recipes);
       }
       View.showToast(`"${created.name}" added!`);
     }
@@ -216,7 +215,7 @@ async function removeRecipe(id) {
       if (searchInput && searchInput.value.trim()) {
         handleSearch(searchInput.value);
       } else {
-        View.render(recipes);
+        refreshRecipeFilters(); View.render(recipes);
       }
       loadCalendar();
       View.showToast('Recipe removed.');
@@ -228,10 +227,10 @@ async function removeRecipe(id) {
 }
 
 // ── Edit button from detail modal ─────────────────────────────────
-function editFromDetail() {
+async function editFromDetail() {
   const id = View.getDetailRecipeId();
   View.closeDetailModal();
-  View.openEditModal(id, recipes);
+  await openStructuredEdit(id);
 }
 
 // ── Search in Recipes ─────────────────────────────────────────────
@@ -240,7 +239,7 @@ async function handleSearch(val) {
   const requestId = ++searchRequestId;
 
   if (!query) {
-    View.render(recipes);
+    refreshRecipeFilters(); View.render(recipes);
     return;
   }
 
@@ -248,7 +247,7 @@ async function handleSearch(val) {
     const data = await apiFetch(`/api/recipes/search?q=${encodeURIComponent(query)}`);
     if (requestId !== searchRequestId) return;
     const results = Array.isArray(data) ? data : (data && Array.isArray(data.recipes) ? data.recipes : []);
-    View.render(results);
+    refreshRecipeFilters(); View.render(results);
   } catch (err) {
     if (requestId !== searchRequestId) return;
     View.showToast('Could not search recipes: ' + err.message);
@@ -430,12 +429,10 @@ async function submitPantryItem(e) {
       if (existing && addToExisting) {
         const existingUnit = (existing.unit || '').trim();
         const incomingUnit = (finalUnit || '').trim();
-        const unitsMatch = !existingUnit || !incomingUnit || existingUnit.toLowerCase() === incomingUnit.toLowerCase();
+        const factor = measurementFactor(incomingUnit, existingUnit);
+        const unitsMatch = factor !== null || Number(existing.quantity) === 0;
         if (unitsMatch) {
-          finalQty = Math.round((Number(existing.quantity) + finalQty) * 1000) / 1000;
-          if (!finalUnit && existing.unit) {
-            finalUnit = existing.unit;
-          }
+          if (Number(existing.quantity) > 0) { finalQty = Number(existing.quantity) + finalQty * factor; finalUnit = existingUnit || "each"; }
         } else {
           const ok = window.confirm(
             `"${name}" is currently stored in "${existingUnit}" (${existing.quantity} ${existingUnit}), ` +
@@ -674,78 +671,13 @@ async function movePurchasedToPantry() {
 
   isMovingToPantry = true;
   try {
-    // Ensure we have latest pantry stock & ingredient catalog
-    await loadPantryItems();
-
-    let movedCount = 0;
-    let skippedMismatch = 0;
-
+    let moved = 0; const failures = [];
     for (const it of purchased) {
-      try {
-        const resolvedId = (it.ingredient_id && Number(it.ingredient_id) > 0)
-          ? Number(it.ingredient_id)
-          : await resolveIngredientId(it.name || '');
-
-        const addQty = (it.quantity !== null && it.quantity !== undefined && Number(it.quantity) > 0)
-          ? Number(it.quantity)
-          : 1;
-        const addUnit = (it.unit && it.unit.trim()) ? it.unit.trim() : null;
-
-        const existing = pantryItems.find(p => Number(p.ingredient_id) === resolvedId);
-        let nextQty = addQty;
-        let nextUnit = addUnit;
-
-        if (existing) {
-          const existingUnit = (existing.unit || '').trim();
-          const incomingUnit = (addUnit || '').trim();
-          const unitsMatch = !existingUnit || !incomingUnit || existingUnit.toLowerCase() === incomingUnit.toLowerCase();
-          if (!unitsMatch) {
-            skippedMismatch++;
-            continue;
-          }
-          nextQty = Math.round((Number(existing.quantity) + addQty) * 1000) / 1000;
-          nextUnit = existingUnit ? existingUnit : addUnit;
-        }
-
-        await apiFetch('/api/pantry-items', {
-          method: 'PUT',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            ingredient_id: resolvedId,
-            quantity: nextQty,
-            unit: nextUnit,
-          }),
-        });
-
-        // Update local pantryItems cache immediately for subsequent items in the same batch
-        if (existing) {
-          existing.quantity = nextQty;
-          existing.unit = nextUnit;
-        } else {
-          pantryItems.push({
-            ingredient_id: resolvedId,
-            ingredient: { id: resolvedId, name: it.name || '' },
-            quantity: nextQty,
-            unit: nextUnit,
-          });
-        }
-
-        await apiFetch(`/api/grocery-list/${it.id}`, { method: 'DELETE' });
-        groceryItems = groceryItems.filter(g => g.id !== it.id);
-        movedCount++;
-      } catch (_) {
-        // Leave failed item in grocery list
-      }
+      try { await apiFetch(`/api/grocery-list/${it.id}/transfer`, {method:'POST'}); moved++; }
+      catch (err) { failures.push(`${it.name || it.id}: ${err.message}`); }
     }
-
-    View.renderGroceryList(groceryItems, groceryFilter, grocerySearchQuery);
-    if (skippedMismatch > 0) {
-      View.showToast(`Moved ${movedCount} item(s) to Pantry (${skippedMismatch} skipped due to unit mismatch).`);
-    } else if (movedCount > 0) {
-      View.showToast(`Moved ${movedCount} item${movedCount === 1 ? '' : 's'} to Pantry!`);
-    } else {
-      View.showToast('Could not move purchased items to Pantry.');
-    }
+    await loadGroceryItems(); await loadPantryItems();
+    View.showToast(`Moved ${moved} item(s). ${failures.join('; ')}`);
   } finally {
     isMovingToPantry = false;
   }
@@ -1035,7 +967,7 @@ async function submitRescheduleMeal(e) {
 
 // ── Auto-Generate Grocery List ────────────────────────────────────
 async function generateGroceryFallbackFromText(recipeIds, scaleFactor, addToList) {
-  const pantryData = await apiFetch('/api/pantry-items').catch(() => []);
+  const pantryData = await apiFetch('/api/pantry-items');
   const pantryMap = new Map();
   if (Array.isArray(pantryData)) {
     pantryData.forEach(p => {
@@ -1053,7 +985,7 @@ async function generateGroceryFallbackFromText(recipeIds, scaleFactor, addToList
     recipe.ingredients.forEach(line => {
       const parsed = View.parseIngredientLine(line);
       if (!parsed || !parsed.name) return;
-      const key = `${parsed.name.toLowerCase()}||${(parsed.unit || '').toLowerCase()}`;
+      const key = [...grouped.keys()].find(k => grouped.get(k).name.toLowerCase() === parsed.name.toLowerCase() && measurementFactor(parsed.unit, grouped.get(k).unit) !== null) || `${parsed.name.toLowerCase()}||${(parsed.unit || '').toLowerCase()}`;
       const rawQty = parsed.quantity * scaleFactor;
       const qty = rawQty > 0 ? Math.max(0.001, Math.round(rawQty * 1000) / 1000) : 0;
       if (!grouped.has(key)) {
@@ -1063,7 +995,7 @@ async function generateGroceryFallbackFromText(recipeIds, scaleFactor, addToList
           unit: parsed.unit,
         });
       } else {
-        grouped.get(key).quantity = Math.round((grouped.get(key).quantity + qty) * 1000) / 1000;
+        grouped.get(key).quantity = Math.round((grouped.get(key).quantity + qty * measurementFactor(parsed.unit, grouped.get(key).unit)) * 1000) / 1000;
       }
     });
   });
@@ -1077,12 +1009,13 @@ async function generateGroceryFallbackFromText(recipeIds, scaleFactor, addToList
 
     if (pantryEntry) {
       pantryQty = Number(pantryEntry.quantity) || 0;
-      const sameUnit = (pantryEntry.unit || '').toLowerCase() === (entry.unit || '').toLowerCase();
-      if (sameUnit || (!pantryEntry.unit && !entry.unit)) {
+      const factor = measurementFactor(pantryEntry.unit, entry.unit);
+      if (factor !== null) {
+        pantryQty *= factor;
         missingQty = Math.max(0, Math.round((entry.quantity - pantryQty) * 1000) / 1000);
         status = missingQty <= 0 ? 'available' : 'insufficient';
       } else {
-        status = 'incomparable';
+        status = 'incomparable'; missingQty = 0;
       }
     }
 
@@ -1356,7 +1289,7 @@ Object.assign(window, {
   openModal: View.openModal,
   closeModal: View.closeModal,
   submitRecipe,
-  openEditModal: (id) => View.openEditModal(id, recipes),
+  openEditModal: openStructuredEdit,
   removeRecipe,
   editFromDetail,
   openDetailModal: (id) => View.openDetailModal(id, recipes, monthMealsByDate[selectedDate] || {}),
@@ -1470,3 +1403,23 @@ if (document.readyState === 'loading') {
   loadRecipes();
   loadCalendar();
 }
+
+async function openStructuredEdit(id) {
+  try {
+    const data = await apiFetch(`/api/recipes/${id}/ingredients`);
+    View.openEditModal(id, recipes, data.ingredients || []);
+  } catch (err) { View.showToast('Could not load recipe ingredients: ' + err.message); }
+}
+document.getElementById('add-ingredient-row').addEventListener('click', () => View.addRecipeIngredientRow());
+
+const measurementUnits = {"g": ["mass", 1.0], "gram": ["mass", 1.0], "grams": ["mass", 1.0], "kg": ["mass", 1000.0], "kilogram": ["mass", 1000.0], "kilograms": ["mass", 1000.0], "mg": ["mass", 0.001], "oz": ["mass", 28.349523125], "ounce": ["mass", 28.349523125], "ounces": ["mass", 28.349523125], "lb": ["mass", 453.59237], "lbs": ["mass", 453.59237], "pound": ["mass", 453.59237], "pounds": ["mass", 453.59237], "ml": ["volume", 1.0], "milliliter": ["volume", 1.0], "milliliters": ["volume", 1.0], "l": ["volume", 1000.0], "liter": ["volume", 1000.0], "liters": ["volume", 1000.0], "tsp": ["volume", 4.92892159375], "teaspoon": ["volume", 4.92892159375], "teaspoons": ["volume", 4.92892159375], "tbsp": ["volume", 14.78676478125], "tablespoon": ["volume", 14.78676478125], "tablespoons": ["volume", 14.78676478125], "cup": ["volume", 236.5882365], "cups": ["volume", 236.5882365], "each": ["count", 1.0], "ea": ["count", 1.0], "piece": ["count", 1.0], "pieces": ["count", 1.0], "whole": ["count", 1.0], "pcs": ["count", 1.0], "pc": ["count", 1.0], "count": ["count", 1.0]};
+function measurementFactor(from,to) { const a=(from||"each").trim().toLowerCase(), b=(to||"each").trim().toLowerCase(); if(a===b)return 1; const x=measurementUnits[a],y=measurementUnits[b]; return x&&y&&x[0]===y[0]?x[1]/y[1]:null; }
+
+function refreshRecipeFilters(){
+ for(const [id,key,title] of [['recipe-category-filter','category','All categories'],['recipe-tag-filter','tags','All tags'],['recipe-diet-filter','dietary','All diets']]){
+ const el=document.getElementById(id); if(!el)continue; const old=el.value;
+ const vals=[...new Set(recipes.flatMap(r=>key==='category'?[r[key]||'']:(r[key]||'').split(',')).map(v=>v.trim().toLowerCase()).filter(Boolean))].sort();
+ el.replaceChildren(new Option(title,''),...vals.map(v=>new Option(v,v))); if(vals.includes(old))el.value=old;
+ }
+}
+for(const id of ['recipe-category-filter','recipe-tag-filter','recipe-diet-filter']) document.getElementById(id)?.addEventListener('change',()=>handleSearch(document.getElementById('search-input').value));

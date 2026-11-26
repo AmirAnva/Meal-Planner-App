@@ -369,3 +369,23 @@ func (r *SQLiteRepository) DeleteGroceryItem(id int) error {
 	}
 	return e
 }
+
+// Save structured associations in the same transaction as the recipe itself.
+func syncRecipeInputTx(tx *sql.Tx, recipe Recipe) error {
+	if recipe.StructuredIngredients == nil {
+		return syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients)
+	}
+	if _, err := tx.Exec(`DELETE FROM recipe_ingredients WHERE recipe_id=?`, recipe.ID); err != nil {
+		return err
+	}
+	for _, item := range recipe.StructuredIngredients {
+		name, unit := strings.TrimSpace(item.Name), strings.ToLower(strings.TrimSpace(item.Unit))
+		if _, err := tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, name); err != nil {
+			return err
+		}
+		if _, err := tx.Exec(`INSERT INTO recipe_ingredients(recipe_id,ingredient_id,quantity,unit) SELECT ?,ingredient_id,?,? FROM ingredients WHERE name=?`, recipe.ID, item.Quantity, unit, name); err != nil {
+			return err
+		}
+	}
+	return nil
+}

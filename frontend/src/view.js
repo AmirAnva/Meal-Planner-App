@@ -16,7 +16,9 @@ export function render(recipeList = []) {
   const empty = document.getElementById('empty-state');
   if (!grid || !empty) return;
 
-  const filtered = recipeList;
+  const labels = v => (v || '').split(',').map(x=>x.trim().toLowerCase()).filter(Boolean);
+  const filters = [['recipe-category-filter','category'],['recipe-tag-filter','tags'],['recipe-diet-filter','dietary']];
+  const filtered = recipeList.filter(r=>filters.every(([id,key])=>{const v=document.getElementById(id)?.value;return !v || (key==='category' ? (r[key]||'').trim().toLowerCase()===v : labels(r[key]).includes(v));}));
 
   if (filtered.length === 0) {
     grid.innerHTML = '';
@@ -45,7 +47,7 @@ export function cardHTML(r) {
       <button class="card-remove" onclick="event.stopPropagation(); removeRecipe(${r.id})" title="Remove recipe">&#x2715;</button>
       <div class="card-body">
         <div class="card-name">${escapeHTML(r.name)}</div>
-        <div class="card-meta">${metaText}</div>
+        <div class="card-meta">${metaText}</div><div class="recipe-labels">${[r.category,r.tags,r.dietary].filter(Boolean).map(v=>`<span>${escapeHTML(v)}</span>`).join('')}</div>
       </div>
     </div>`;
 }
@@ -344,19 +346,21 @@ export function openModal() {
   document.getElementById('modal-backdrop').style.display = 'flex';
   document.getElementById('modal-edit-id').value = '';
   document.getElementById('f-name').value         = '';
-  document.getElementById('f-ingredients').value  = '';
+  resetIngredientRows();
+  for (const key of ['category','tags','dietary']) document.getElementById('f-'+key).value = '';
   document.getElementById('f-instructions').value = '';
   document.getElementById('f-name').focus();
 }
 
-export function openEditModal(id, recipeList = []) {
+export function openEditModal(id, recipeList = [], structured = []) {
   const r = recipeList.find(x => x.id === Number(id));
   if (!r) return;
 
   document.getElementById('modal-title').textContent = 'Edit Recipe';
   document.getElementById('modal-edit-id').value     = r.id;
   document.getElementById('f-name').value            = r.name;
-  document.getElementById('f-ingredients').value     = (r.ingredients || []).join('\n');
+  for (const key of ['category','tags','dietary']) document.getElementById('f-'+key).value = r[key] || '';
+  resetIngredientRows(structured.length ? structured.map(item => item.quantity != null && item.unit ? {name:item.ingredient.name, quantity:item.quantity, unit:item.unit} : parseIngredientLine(item.ingredient.name)) : (r.ingredients || []).map(parseIngredientLine).filter(Boolean));
   document.getElementById('f-instructions').value   = (r.instructions || []).join('\n');
   document.getElementById('modal-backdrop').style.display = 'flex';
   document.getElementById('f-name').focus();
@@ -367,7 +371,7 @@ export function closeModal() {
   if (backdrop) backdrop.style.display = 'none';
   document.getElementById('modal-edit-id').value = '';
   document.getElementById('f-name').value         = '';
-  document.getElementById('f-ingredients').value  = '';
+  document.getElementById('recipe-ingredient-rows').replaceChildren();
   document.getElementById('f-instructions').value = '';
 }
 
@@ -615,11 +619,18 @@ export function restoreRecipeCard(id) {
 export function readRecipeForm() {
   const editId = document.getElementById('modal-edit-id').value;
   const name = document.getElementById('f-name').value.trim();
-  const ingredients = document.getElementById('f-ingredients').value
-    .split('\n').map(value => value.trim()).filter(Boolean);
+  const structured_ingredients = [...document.querySelectorAll('.recipe-ingredient-row')].map(row => ({
+    name: row.querySelector('.ingredient-name').value.trim(),
+    quantity: Number(row.querySelector('.ingredient-quantity').value),
+    unit: row.querySelector('.ingredient-unit').value.trim().toLowerCase(),
+  }));
+  if (!name || !structured_ingredients.length || structured_ingredients.some(i => !i.name || !Number.isFinite(i.quantity) || i.quantity <= 0 || !i.unit)) throw new Error('Enter a name, positive quantity and unit for every ingredient.');
+  if (new Set(structured_ingredients.map(i => i.name.toLowerCase())).size !== structured_ingredients.length) throw new Error('Combine duplicate ingredients into one row.');
+  const ingredients = structured_ingredients.map(i => `${i.quantity} ${i.unit} ${i.name}`);
   const instructions = document.getElementById('f-instructions').value
     .split('\n').map(value => value.trim()).filter(Boolean);
-  return { editId, payload: { name, ingredients, instructions } };
+  if (!instructions.length) throw new Error('Enter at least one instruction.');
+  return { editId, payload: { name, ingredients, instructions, structured_ingredients, ...Object.fromEntries(["category","tags","dietary"].map(k=>[k,document.getElementById("f-"+k).value.trim()])) } };
 }
 
 export function getDetailRecipeId() {
@@ -704,28 +715,22 @@ export function renderGroceryList(items = [], filter = 'all', searchQuery = '') 
     return `
       <div class="grocery-item ${item.purchased ? 'purchased' : ''}" id="grocery-item-${numId}">
         <div class="grocery-item-left">
-          <input
-            type="checkbox"
-            id="g-check-${numId}"
-            class="grocery-checkbox"
-            ${item.purchased ? 'checked' : ''}
-            onchange="toggleGroceryItem(${numId}, this.checked)"
-            aria-label="${escapeHTML(item.name || 'Item')}"
-          />
-          <label for="g-check-${numId}" class="grocery-item-main">
-            <span class="grocery-item-name">${escapeHTML(item.name || 'Unnamed Item')}</span>
-            ${qtyText ? `<span class="grocery-item-badge">${escapeHTML(qtyText)}</span>` : ''}
-          </label>
+          <span class="grocery-item-name">${escapeHTML(item.name || 'Unnamed Item')}</span>
+          ${qtyText ? `<span class="grocery-item-badge">${escapeHTML(qtyText)}</span>` : ''}
         </div>
-        <button
-          type="button"
-          class="grocery-item-delete"
-          onclick="event.stopPropagation(); removeGroceryItem(${numId})"
-          title="Remove from list"
-          aria-label="Remove ${escapeHTML(item.name || 'item')}"
-        >
-          &#x2715;
-        </button>
+        <div class="grocery-item-actions">
+          <button type="button" class="grocery-purchase-control"
+            aria-pressed="${Boolean(item.purchased)}"
+            aria-label="${item.purchased ? 'Undo purchase: ' : 'Mark as purchased: '}${escapeHTML(item.name || 'Item')}"
+            onclick="toggleGroceryItem(${numId}, ${!item.purchased})">
+            <span aria-hidden="true">&#10003;</span> Purchased
+          </button>
+          <button type="button" class="grocery-item-delete grocery-remove-action"
+            onclick="event.stopPropagation(); removeGroceryItem(${numId})"
+            aria-label="Remove ${escapeHTML(item.name || 'item')}">
+            <span aria-hidden="true">&#215;</span> Remove
+          </button>
+        </div>
       </div>
     `;
   }).join('');
@@ -1252,4 +1257,19 @@ export function renderGeneratePreview(requirements = [], isEstimated = false) {
       </div>
     `;
   }).join('');
+}
+
+export function addRecipeIngredientRow(item = {}) {
+  const row = document.createElement('div');
+  row.className = 'recipe-ingredient-row';
+  row.innerHTML = `<input class="form-input ingredient-name" aria-label="Ingredient name" required maxlength="120" placeholder="Flour"><input class="form-input ingredient-quantity" aria-label="Quantity" type="number" min="0" step="any" required placeholder="1"><input class="form-input ingredient-unit" aria-label="Unit" required maxlength="30" placeholder="cup"><button type="button" class="remove-ingredient-btn" aria-label="Remove ingredient">×</button>`;
+  row.querySelector('.ingredient-name').value = item.name ?? '';
+  row.querySelector('.ingredient-quantity').value = item.quantity ?? 1;
+  row.querySelector('.ingredient-unit').value = item.unit || 'each';
+  row.querySelector('button').onclick = () => row.remove();
+  document.getElementById('recipe-ingredient-rows').append(row);
+}
+function resetIngredientRows(items = []) {
+  document.getElementById('recipe-ingredient-rows').replaceChildren();
+  (items.length ? items : [{}]).forEach(addRecipeIngredientRow);
 }
