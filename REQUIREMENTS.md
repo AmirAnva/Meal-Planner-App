@@ -20,13 +20,16 @@ Meal Planner helps users organize recipes, find meals based on available ingredi
 - **R7:** Assign recipes to breakfast, lunch, or dinner for the current day.
 - **R8:** View assigned meals and their associated recipes.
 
+### Account Preferences
+- **R9:** Register and sign in with a unique name and password.
+- **R10:** View and update dietary preferences, dietary restrictions, and typical serving count.
+
 ## 3. Future Requirements
 
 - **Recipe Organization:** Tags, categories, dietary filters, and serving adjustments.
 - **Pantry Management:** Track and update available ingredients.
 - **Grocery Planning:** Create and manage shopping lists.
 - **Meal Calendar:** Schedule and manage meals across multiple days.
-- **Account Preferences:** Manage profiles, dietary restrictions, allergies, and serving preferences.
 
 ## 4. Walking Skeleton Scope
 

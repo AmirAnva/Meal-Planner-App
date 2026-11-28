@@ -17,6 +17,11 @@ type API struct {
 func NewAPI(store *SQLiteRepository) http.Handler {
 	api := &API{store: store}
 	mux := http.NewServeMux()
+	mux.HandleFunc("POST /api/accounts", api.registerAccount)
+	mux.HandleFunc("POST /api/accounts/login", api.loginAccount)
+	mux.HandleFunc("POST /api/accounts/logout", api.logoutAccount)
+	mux.HandleFunc("GET /api/account", api.getAccountProfile)
+	mux.HandleFunc("PUT /api/account", api.updateAccountProfile)
 	mux.HandleFunc("GET /api/recipes", api.listRecipes)
 	mux.HandleFunc("GET /api/recipes/search", api.searchRecipes)
 	mux.HandleFunc("POST /api/recipes", api.createRecipe)

@@ -72,3 +72,8 @@ npm run build
 | GET | `/api/calendar?start=YYYY-MM-DD&days=7` | Get calendar days and assigned meals |
 | POST | `/api/calendar/meals` | Assign or replace a meal (`date`, `meal_type`, `recipe_id`) |
 | DELETE | `/api/calendar/meals?date=YYYY-MM-DD&meal_type=breakfast` | Remove a meal assignment |
+| POST | `/api/accounts` | Register with `name`, `password`, `dietary_preferences`, `dietary_restrictions`, and `typical_servings`; signs in on success |
+| POST | `/api/accounts/login` | Sign in with `name` and `password` |
+| POST | `/api/accounts/logout` | Sign out and invalidate the current session |
+| GET | `/api/account` | Get the signed-in user's profile |
+| PUT | `/api/account` | Update the signed-in user's profile; `password` is optional |

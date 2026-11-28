@@ -8,14 +8,18 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	_ "modernc.org/sqlite"
 )
 
 var (
-	ErrRecipeNotFound = errors.New("recipe not found")
-	ErrDayNotFound    = errors.New("day not found")
-	ErrMealNotFound   = errors.New("meal not found")
+	ErrRecipeNotFound  = errors.New("recipe not found")
+	ErrDayNotFound     = errors.New("day not found")
+	ErrMealNotFound    = errors.New("meal not found")
+	ErrAccountNotFound = errors.New("account not found")
+	ErrAccountExists   = errors.New("account already exists")
+	ErrSessionNotFound = errors.New("session not found")
 )
 
 // SQLiteRepository owns the database connection and all SQL persistence.
@@ -94,6 +98,19 @@ CREATE TABLE IF NOT EXISTS pantry_items (
  ingredient_id INTEGER PRIMARY KEY REFERENCES ingredients(ingredient_id),
  quantity REAL NOT NULL DEFAULT 0,
  unit TEXT
+);
+CREATE TABLE IF NOT EXISTS accounts (
+  account_id INTEGER PRIMARY KEY AUTOINCREMENT,
+  name TEXT NOT NULL UNIQUE COLLATE NOCASE,
+  password_hash TEXT NOT NULL,
+  dietary_preferences TEXT NOT NULL DEFAULT '[]',
+  dietary_restrictions TEXT NOT NULL DEFAULT '[]',
+  typical_servings INTEGER NOT NULL CHECK (typical_servings BETWEEN 1 AND 20)
+);
+CREATE TABLE IF NOT EXISTS account_sessions (
+  token_hash TEXT PRIMARY KEY,
+  account_id INTEGER NOT NULL REFERENCES accounts(account_id) ON DELETE CASCADE,
+  expires_at INTEGER NOT NULL
 );
 CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
 	if err != nil {
@@ -174,6 +191,115 @@ CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
 }
 
 func (r *SQLiteRepository) Close() error { return r.db.Close() }
+
+func (r *SQLiteRepository) CreateAccount(account Account, passwordHash string) (Account, error) {
+	preferences, err := json.Marshal(account.DietaryPreferences)
+	if err != nil {
+		return Account{}, err
+	}
+	restrictions, err := json.Marshal(account.DietaryRestrictions)
+	if err != nil {
+		return Account{}, err
+	}
+	result, err := r.db.Exec(`INSERT INTO accounts(name, password_hash, dietary_preferences, dietary_restrictions, typical_servings) VALUES (?, ?, ?, ?, ?)`,
+		account.Name, passwordHash, string(preferences), string(restrictions), account.TypicalServings)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: accounts.name") {
+			return Account{}, ErrAccountExists
+		}
+		return Account{}, err
+	}
+	id, err := result.LastInsertId()
+	if err != nil {
+		return Account{}, err
+	}
+	account.ID = id
+	return account, nil
+}
+
+func (r *SQLiteRepository) GetAccount(id int64) (Account, error) {
+	account, _, err := scanAccount(r.db.QueryRow(`SELECT account_id, name, dietary_preferences, dietary_restrictions, typical_servings, password_hash FROM accounts WHERE account_id=?`, id))
+	return account, err
+}
+
+func (r *SQLiteRepository) GetAccountByName(name string) (Account, string, error) {
+	account, passwordHash, err := scanAccount(r.db.QueryRow(`SELECT account_id, name, dietary_preferences, dietary_restrictions, typical_servings, password_hash FROM accounts WHERE name=? COLLATE NOCASE`, name))
+	return account, passwordHash, err
+}
+
+func (r *SQLiteRepository) UpdateAccount(account Account, passwordHash string) (Account, error) {
+	preferences, err := json.Marshal(account.DietaryPreferences)
+	if err != nil {
+		return Account{}, err
+	}
+	restrictions, err := json.Marshal(account.DietaryRestrictions)
+	if err != nil {
+		return Account{}, err
+	}
+	tx, err := r.db.Begin()
+	if err != nil {
+		return Account{}, err
+	}
+	defer tx.Rollback()
+
+	var duplicate int64
+	err = tx.QueryRow(`SELECT account_id FROM accounts WHERE name=? COLLATE NOCASE AND account_id<>?`, account.Name, account.ID).Scan(&duplicate)
+	if err == nil {
+		return Account{}, ErrAccountExists
+	}
+	if !errors.Is(err, sql.ErrNoRows) {
+		return Account{}, err
+	}
+
+	query := `UPDATE accounts SET name=?, dietary_preferences=?, dietary_restrictions=?, typical_servings=?`
+	args := []any{account.Name, string(preferences), string(restrictions), account.TypicalServings}
+	if passwordHash != "" {
+		query += `, password_hash=?`
+		args = append(args, passwordHash)
+	}
+	query += ` WHERE account_id=?`
+	args = append(args, account.ID)
+	result, err := tx.Exec(query, args...)
+	if err != nil {
+		if strings.Contains(strings.ToLower(err.Error()), "unique constraint failed: accounts.name") {
+			return Account{}, ErrAccountExists
+		}
+		return Account{}, err
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return Account{}, err
+	}
+	if count == 0 {
+		return Account{}, ErrAccountNotFound
+	}
+	if err := tx.Commit(); err != nil {
+		return Account{}, err
+	}
+	return account, nil
+}
+
+func (r *SQLiteRepository) CreateAccountSession(accountID int64, tokenHash string, expiresAt int64) error {
+	if _, err := r.db.Exec(`DELETE FROM account_sessions WHERE expires_at<=?`, time.Now().Unix()); err != nil {
+		return err
+	}
+	_, err := r.db.Exec(`INSERT INTO account_sessions(token_hash, account_id, expires_at) VALUES (?, ?, ?)`, tokenHash, accountID, expiresAt)
+	return err
+}
+
+func (r *SQLiteRepository) GetAccountIDBySession(tokenHash string) (int64, error) {
+	var accountID int64
+	err := r.db.QueryRow(`SELECT account_id FROM account_sessions WHERE token_hash=? AND expires_at>?`, tokenHash, time.Now().Unix()).Scan(&accountID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return 0, ErrSessionNotFound
+	}
+	return accountID, err
+}
+
+func (r *SQLiteRepository) DeleteAccountSession(tokenHash string) error {
+	_, err := r.db.Exec(`DELETE FROM account_sessions WHERE token_hash=?`, tokenHash)
+	return err
+}
 
 func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err := recipe.Validate(); err != nil {
@@ -436,4 +562,22 @@ func scanRecipe(row scanner) (Recipe, error) {
 		return Recipe{}, fmt.Errorf("decode instructions: %w", err)
 	}
 	return recipe, nil
+}
+
+func scanAccount(row scanner) (Account, string, error) {
+	var account Account
+	var preferences, restrictions, passwordHash string
+	if err := row.Scan(&account.ID, &account.Name, &preferences, &restrictions, &account.TypicalServings, &passwordHash); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return Account{}, "", ErrAccountNotFound
+		}
+		return Account{}, "", err
+	}
+	if err := json.Unmarshal([]byte(preferences), &account.DietaryPreferences); err != nil {
+		return Account{}, "", fmt.Errorf("decode account dietary preferences: %w", err)
+	}
+	if err := json.Unmarshal([]byte(restrictions), &account.DietaryRestrictions); err != nil {
+		return Account{}, "", fmt.Errorf("decode account dietary restrictions: %w", err)
+	}
+	return account, passwordHash, nil
 }
