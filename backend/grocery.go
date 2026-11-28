@@ -60,7 +60,7 @@ var units = map[string]unitInfo{
 	"mg": {"mass", .001}, "oz": {"mass", 28.349523125}, "ounce": {"mass", 28.349523125}, "ounces": {"mass", 28.349523125}, "lb": {"mass", 453.59237}, "lbs": {"mass", 453.59237}, "pound": {"mass", 453.59237}, "pounds": {"mass", 453.59237},
 	"ml": {"volume", 1}, "milliliter": {"volume", 1}, "milliliters": {"volume", 1}, "l": {"volume", 1000}, "liter": {"volume", 1000}, "liters": {"volume", 1000},
 	"tsp": {"volume", 4.92892159375}, "teaspoon": {"volume", 4.92892159375}, "teaspoons": {"volume", 4.92892159375}, "tbsp": {"volume", 14.78676478125}, "tablespoon": {"volume", 14.78676478125}, "tablespoons": {"volume", 14.78676478125}, "cup": {"volume", 236.5882365}, "cups": {"volume", 236.5882365},
-	"each": {"count", 1}, "ea": {"count", 1}, "piece": {"count", 1}, "pieces": {"count", 1}, "whole": {"count", 1},
+	"each": {"count", 1}, "ea": {"count", 1}, "piece": {"count", 1}, "pieces": {"count", 1}, "whole": {"count", 1}, "pcs": {"count", 1}, "pc": {"count", 1}, "count": {"count", 1},
 }
 
 func unitConversion(from, to string) (float64, bool) {
@@ -130,8 +130,15 @@ func (r *SQLiteRepository) GenerateGroceryRequirements(recipeIDs []int) ([]Groce
 			continue
 		}
 		for _, req := range requirements {
+			if item.Quantity == 0 {
+				continue
+			}
+			pantryUnit := "each"
 			if item.Unit != nil {
-				if factor, ok := unitConversion(*item.Unit, req.Unit); ok {
+				pantryUnit = *item.Unit
+			}
+			{
+				if factor, ok := unitConversion(pantryUnit, req.Unit); ok {
 					req.PantryQuantity = item.Quantity * factor
 					continue
 				}
@@ -329,4 +336,71 @@ func createGroceryItemTx(tx *sql.Tx, item GroceryItem) (GroceryItem, error) {
 	}
 	validated.ID = int(id)
 	return validated, nil
+}
+
+// MovePurchasedGrocery transfers one purchased item atomically.
+func (r *SQLiteRepository) MovePurchasedGrocery(id int) error {
+	tx, err := r.db.Begin()
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	var iid sql.NullInt64
+	var name, unit sql.NullString
+	var qty sql.NullFloat64
+	var purchased bool
+	err = tx.QueryRow(`SELECT ingredient_id,name,quantity,unit,purchased FROM grocery_items WHERE grocery_item_id=?`, id).Scan(&iid, &name, &qty, &unit, &purchased)
+	if err != nil {
+		return err
+	}
+	if !purchased {
+		return errors.New("item is not purchased")
+	}
+	if !iid.Valid {
+		n := strings.TrimSpace(name.String)
+		if n == "" {
+			return ErrInvalidGroceryItem
+		}
+		if _, err = tx.Exec(`INSERT INTO ingredients(name) VALUES (?) ON CONFLICT(name) DO NOTHING`, n); err != nil {
+			return err
+		}
+		if err = tx.QueryRow(`SELECT ingredient_id FROM ingredients WHERE name=?`, n).Scan(&iid.Int64); err != nil {
+			return err
+		}
+	}
+	amount := 1.0
+	if qty.Valid {
+		amount = qty.Float64
+	}
+	if amount <= 0 || math.IsNaN(amount) || math.IsInf(amount, 0) {
+		return ErrInvalidGroceryItem
+	}
+	incoming := strings.TrimSpace(unit.String)
+	if incoming == "" {
+		incoming = "each"
+	}
+	var old float64
+	var oldUnit sql.NullString
+	err = tx.QueryRow(`SELECT quantity,unit FROM pantry_items WHERE ingredient_id=?`, iid.Int64).Scan(&old, &oldUnit)
+	if err == nil && old > 0 {
+		target := strings.TrimSpace(oldUnit.String)
+		if target == "" {
+			target = "each"
+		}
+		factor, ok := unitConversion(incoming, target)
+		if !ok {
+			return errors.New("incompatible pantry unit")
+		}
+		amount = old + amount*factor
+		incoming = target
+	} else if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	if _, err = tx.Exec(`INSERT INTO pantry_items(ingredient_id,quantity,unit) VALUES(?,?,?) ON CONFLICT(ingredient_id) DO UPDATE SET quantity=excluded.quantity,unit=excluded.unit`, iid.Int64, amount, incoming); err != nil {
+		return err
+	}
+	if _, err = tx.Exec(`DELETE FROM grocery_items WHERE grocery_item_id=?`, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

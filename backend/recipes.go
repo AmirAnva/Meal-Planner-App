@@ -2,19 +2,25 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"math"
+	"strconv"
 	"strings"
 )
 
-var ErrRecipeNameRequired = errors.New("recipe name is required")
+var ErrRecipeNameRequired = errors.New("name is required")
 
 // Recipe is the application model for a saved recipe. Persistence is handled
 // by SQLiteRepository, keeping SQL concerns out of the model.
 type Recipe struct {
-	ID           int      `json:"id"`
-	Name         string   `json:"name"`
-	Ingredients  []string `json:"ingredients"`
-	Instructions []string `json:"instructions"`
+	Category              string                  `json:"category,omitempty"`
+	Tags                  string                  `json:"tags,omitempty"`
+	Dietary               string                  `json:"dietary,omitempty"`
+	ID                    int                     `json:"id"`
+	Name                  string                  `json:"name"`
+	Ingredients           []string                `json:"ingredients"`
+	Instructions          []string                `json:"instructions"`
+	StructuredIngredients []RecipeIngredientInput `json:"structured_ingredients,omitempty"`
 }
 
 // Ingredient is a reusable ingredient identity shared across recipes, pantry,
@@ -62,9 +68,49 @@ type PantryItem struct {
 	Unit         *string    `json:"unit"`
 }
 
+type RecipeIngredientInput struct {
+	Name     string  `json:"name"`
+	Quantity float64 `json:"quantity"`
+	Unit     string  `json:"unit"`
+}
+
+func (r *Recipe) prepareStructuredIngredients() {
+	if r.StructuredIngredients == nil {
+		return
+	}
+	r.Ingredients = []string{}
+	for _, i := range r.StructuredIngredients {
+		r.Ingredients = append(r.Ingredients, strconv.FormatFloat(i.Quantity, 'f', -1, 64)+" "+strings.TrimSpace(i.Unit)+" "+strings.TrimSpace(i.Name))
+	}
+}
 func (r Recipe) Validate() error {
+	if len(r.Category) > 100 || len(r.Tags) > 500 || len(r.Dietary) > 500 {
+		return errors.New("recipe labels are too long")
+	}
 	if strings.TrimSpace(r.Name) == "" {
 		return ErrRecipeNameRequired
+	}
+	if r.StructuredIngredients != nil {
+		if len(r.StructuredIngredients) == 0 {
+			return fmt.Errorf("at least one ingredient is required")
+		}
+		seen := map[string]bool{}
+		for _, i := range r.StructuredIngredients {
+			name := strings.ToLower(strings.TrimSpace(i.Name))
+			if name == "" || len(i.Name) > 120 || strings.TrimSpace(i.Unit) == "" || len(i.Unit) > 30 || i.Quantity <= 0 || math.IsNaN(i.Quantity) || math.IsInf(i.Quantity, 0) || seen[name] {
+				return fmt.Errorf("invalid or duplicate ingredient")
+			}
+			seen[name] = true
+		}
+		valid := false
+		for _, step := range r.Instructions {
+			if strings.TrimSpace(step) != "" {
+				valid = true
+			}
+		}
+		if !valid {
+			return fmt.Errorf("instructions are required")
+		}
 	}
 	return nil
 }

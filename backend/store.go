@@ -99,6 +99,17 @@ CREATE TABLE IF NOT EXISTS schema_migrations (version INTEGER PRIMARY KEY);`)
 	if err != nil {
 		return err
 	}
+	for _, column := range []string{"category", "tags", "dietary"} {
+		var found int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM pragma_table_info('recipes') WHERE name=?`, column).Scan(&found); err != nil {
+			return err
+		}
+		if found == 0 {
+			if _, err := db.Exec(`ALTER TABLE recipes ADD COLUMN ` + column + ` TEXT NOT NULL DEFAULT ''`); err != nil {
+				return err
+			}
+		}
+	}
 	var migrated int
 	if err := db.QueryRow(`SELECT COUNT(*) FROM schema_migrations WHERE version=1`).Scan(&migrated); err != nil {
 		return err
@@ -168,6 +179,7 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 	if err := recipe.Validate(); err != nil {
 		return Recipe{}, err
 	}
+	recipe.prepareStructuredIngredients()
 	if recipe.Ingredients == nil {
 		recipe.Ingredients = []string{}
 	}
@@ -187,7 +199,7 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 		return Recipe{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`INSERT INTO recipes(name, ingredients, instructions) VALUES (?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions))
+	result, err := tx.Exec(`INSERT INTO recipes(name, ingredients, instructions, category, tags, dietary) VALUES (?, ?, ?, ?, ?, ?)`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.Category, recipe.Tags, recipe.Dietary)
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -196,14 +208,14 @@ func (r *SQLiteRepository) CreateRecipe(recipe Recipe) (Recipe, error) {
 		return Recipe{}, err
 	}
 	recipe.ID = int(id)
-	if err = syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
+	if err = syncRecipeInputTx(tx, recipe); err != nil {
 		return Recipe{}, err
 	}
 	return recipe, tx.Commit()
 }
 
 func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
-	rows, err := r.db.Query(`SELECT recipe_id, name, ingredients, instructions FROM recipes ORDER BY recipe_id`)
+	rows, err := r.db.Query(`SELECT recipe_id, name, ingredients, instructions, category, tags, dietary FROM recipes ORDER BY recipe_id`)
 	if err != nil {
 		return nil, err
 	}
@@ -220,7 +232,7 @@ func (r *SQLiteRepository) ListRecipes() ([]Recipe, error) {
 }
 
 func (r *SQLiteRepository) GetRecipe(id int) (Recipe, error) {
-	recipe, err := scanRecipe(r.db.QueryRow(`SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE recipe_id = ?`, id))
+	recipe, err := scanRecipe(r.db.QueryRow(`SELECT recipe_id, name, ingredients, instructions, category, tags, dietary FROM recipes WHERE recipe_id = ?`, id))
 	if errors.Is(err, sql.ErrNoRows) {
 		return Recipe{}, ErrRecipeNotFound
 	}
@@ -231,6 +243,7 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if err := recipe.Validate(); err != nil {
 		return Recipe{}, err
 	}
+	recipe.prepareStructuredIngredients()
 	if recipe.Ingredients == nil {
 		recipe.Ingredients = []string{}
 	}
@@ -250,7 +263,7 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 		return Recipe{}, err
 	}
 	defer tx.Rollback()
-	result, err := tx.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.ID)
+	result, err := tx.Exec(`UPDATE recipes SET name=?, ingredients=?, instructions=?, category=?, tags=?, dietary=? WHERE recipe_id=?`, strings.TrimSpace(recipe.Name), string(ingredients), string(instructions), recipe.Category, recipe.Tags, recipe.Dietary, recipe.ID)
 	if err != nil {
 		return Recipe{}, err
 	}
@@ -261,7 +274,7 @@ func (r *SQLiteRepository) UpdateRecipe(recipe Recipe) (Recipe, error) {
 	if count == 0 {
 		return Recipe{}, ErrRecipeNotFound
 	}
-	if err := syncRecipeIngredientsTx(tx, recipe.ID, recipe.Ingredients); err != nil {
+	if err := syncRecipeInputTx(tx, recipe); err != nil {
 		return Recipe{}, err
 	}
 	recipe.Name = strings.TrimSpace(recipe.Name)
@@ -296,7 +309,7 @@ func (r *SQLiteRepository) SearchRecipes(query string) ([]Recipe, error) {
 		conditions[i] = `lower(name || ' ' || ingredients || ' ' || instructions) LIKE ?`
 		args[i] = "%" + keyword + "%"
 	}
-	querySQL := `SELECT recipe_id, name, ingredients, instructions FROM recipes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY recipe_id`
+	querySQL := `SELECT recipe_id, name, ingredients, instructions, category, tags, dietary FROM recipes WHERE ` + strings.Join(conditions, " OR ") + ` ORDER BY recipe_id`
 	rows, err := r.db.Query(querySQL, args...)
 	if err != nil {
 		return nil, err
@@ -413,7 +426,7 @@ type scanner interface{ Scan(...any) error }
 func scanRecipe(row scanner) (Recipe, error) {
 	var recipe Recipe
 	var ingredients, instructions string
-	if err := row.Scan(&recipe.ID, &recipe.Name, &ingredients, &instructions); err != nil {
+	if err := row.Scan(&recipe.ID, &recipe.Name, &ingredients, &instructions, &recipe.Category, &recipe.Tags, &recipe.Dietary); err != nil {
 		return Recipe{}, err
 	}
 	if err := json.Unmarshal([]byte(ingredients), &recipe.Ingredients); err != nil {

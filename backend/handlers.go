@@ -25,6 +25,7 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	mux.HandleFunc("GET /api/ingredients", api.listIngredients)
 	mux.HandleFunc("POST /api/ingredients", api.createIngredient)
 	mux.HandleFunc("PUT /api/recipes/{id}/ingredients", api.setRecipeIngredients)
+	mux.HandleFunc("GET /api/recipes/{id}/ingredients", api.getRecipeIngredients)
 	mux.HandleFunc("GET /api/pantry-items", api.listPantryItems)
 	mux.HandleFunc("PUT /api/pantry-items", api.savePantryItem)
 	mux.HandleFunc("GET /api/grocery-list", api.listGroceryItems)
@@ -32,6 +33,7 @@ func NewAPI(store *SQLiteRepository) http.Handler {
 	mux.HandleFunc("PUT /api/grocery-list/{id}", api.updateGroceryItem)
 	mux.HandleFunc("DELETE /api/grocery-list/{id}", api.deleteGroceryItem)
 	mux.HandleFunc("POST /api/grocery-list/generate", api.generateGroceryList)
+	mux.HandleFunc("POST /api/grocery-list/{id}/transfer", api.transferGrocery)
 	mux.HandleFunc("GET /api/calendar", api.getCalendar)
 	mux.HandleFunc("POST /api/calendar/meals", api.assignCalendarMeal)
 	mux.HandleFunc("DELETE /api/calendar/meals", api.removeCalendarMeal)
@@ -162,6 +164,10 @@ func (api *API) updateRecipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	recipe.ID = id
+	if err := recipe.Validate(); err != nil {
+		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
 	updated, err := api.store.UpdateRecipe(recipe)
 	if err != nil {
 		if errors.Is(err, ErrRecipeNameRequired) {
@@ -206,7 +212,7 @@ func (api *API) createRecipe(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if err := recipe.Validate(); err != nil {
-		writeError(w, http.StatusBadRequest, "name is required")
+		writeError(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	created, err := api.store.CreateRecipe(recipe)
