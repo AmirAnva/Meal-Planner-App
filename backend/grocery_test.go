@@ -140,3 +140,49 @@ func TestAddMissingRequirementsRollsBackAllWritesOnFailure(t *testing.T) {
 		t.Fatalf("grocery items after validation failure = %+v, %v; want no writes", items, err)
 	}
 }
+
+func TestGroceryDeduplicationMergesUnpurchasedItems(t *testing.T) {
+	repo := newTestRepository(t)
+	flour, err := repo.CreateIngredient(Ingredient{Name: "Flour"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 1. Add 2 cups Flour manually, then add 250 ml via AddMissingRequirements -> should merge into 1 row in cups
+	cups := "cups"
+	q1 := 2.0
+	first, err := repo.CreateGroceryItem(GroceryItem{Name: &flour.Name, Quantity: &q1, Unit: &cups})
+	if err != nil {
+		t.Fatal(err)
+	}
+	req := GroceryRequirement{Ingredient: flour, RequiredQuantity: 250, Unit: "ml", MissingQuantity: 250, Status: "missing"}
+	added, err := repo.AddMissingRequirements([]GroceryRequirement{req})
+	if err != nil || len(added) != 1 {
+		t.Fatalf("AddMissingRequirements() = %+v, %v", added, err)
+	}
+	items, err := repo.ListGroceryItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	wantQty := 2.0 + 250.0/236.5882365
+	if len(items) != 1 || items[0].ID != first.ID || items[0].Quantity == nil || math.Abs(*items[0].Quantity-wantQty) > 1e-9 {
+		t.Fatalf("merged grocery items = %+v, want single item id=%d with qty %.9f", items, first.ID, wantQty)
+	}
+
+	// 2. Mark existing item purchased, then add Flour again -> should create a new unpurchased row
+	items[0].Purchased = true
+	if _, err := repo.UpdateGroceryItem(items[0]); err != nil {
+		t.Fatal(err)
+	}
+	q2 := 1.0
+	if _, err := repo.CreateGroceryItem(GroceryItem{Name: &flour.Name, Quantity: &q2, Unit: &cups}); err != nil {
+		t.Fatal(err)
+	}
+	items, err = repo.ListGroceryItems()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 2 {
+		t.Fatalf("grocery items after purchased + new add = %+v, want 2 rows", items)
+	}
+}
